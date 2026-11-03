@@ -1,15 +1,15 @@
 {
   "dependencies": {
+    "com.meta.xr.sdk.core": "207.0.1",
     "com.unity.ai.assistant": "2.21.0-pre.2",
     "com.unity.ai.inference": "2.6.1",
-    "com.unity.collab-proxy": "2.13.6",
     "com.unity.feature.development": "1.0.2",
     "com.unity.inputsystem": "1.20.1",
-    "com.unity.multiplayer.center": "1.0.1",
     "com.unity.pipeline": "0.9.1-exp.1",
+    "com.unity.render-pipelines.universal": "17.3.0",
     "com.unity.timeline": "1.8.13",
     "com.unity.ugui": "2.0.0",
-    "com.unity.visualscripting": "1.9.12",
+    "com.unity.xr.openxr": "1.19.0",
     "com.unity.modules.accessibility": "1.0.0",
     "com.unity.modules.adaptiveperformance": "1.0.0",
     "com.unity.modules.ai": "1.0.0",
