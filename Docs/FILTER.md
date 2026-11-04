@@ -62,11 +62,13 @@ It uses `RawGazeRay`, never `StableGazeRay`. Smoothing adds lag, and if the boun
 
 ## 5. Settings and keys
 
-| Setting | Default | Notes |
-|---|---|---|
-| `filterEnabled` | on | **H** toggles in Play mode |
-| `blindSide` | Left | **B** flips in Play mode |
-| `blindColor` | black | See limitations |
+| Setting | Default | Keyboard | Controllers |
+|---|---|---|---|
+| `filterEnabled` | on | **H** toggles | **A, B, X or Y** toggles |
+| `blindSide` | Left | **B** flips | **Either index trigger** flips |
+| `blindColor` | black | | See limitations |
+
+`ToggleFilter()` and `FlipBlindSide()` are public, so a menu or an experiment script can call them later.
 
 ## 6. Known limitations (v0)
 
@@ -81,5 +83,5 @@ It uses `RawGazeRay`, never `StableGazeRay`. Smoothing adds lag, and if the boun
 
 1. No headset: press Play. Everything left of the red mouse dot goes black, and the boundary follows the mouse.
 2. Quest Pro over Link: press Play. The left half of the world disappears, and the boundary follows your eyes.
-3. Press **H** to compare with and without the filter. Press **B** to flip sides.
+3. Press **H** (or A, B, X, Y) to compare with and without the filter. Press **B** (or either index trigger) to flip sides.
 4. Look at a cube, then move your eyes to the left. The cube should vanish once your gaze passes it.

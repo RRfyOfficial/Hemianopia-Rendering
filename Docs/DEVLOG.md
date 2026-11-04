@@ -11,6 +11,8 @@ Newest first. Each entry says what changed and why.
 - **Why per pixel and not "left half of the screen":** the condition is locked to the eyes, not the head. The boundary has to move whenever the eyes move.
 - **Both eyes for free:** each eye renders with its own camera, so both lose the same half of the world, matching real hemianopia.
 - **v0 choices:** left side blind by default, pure black, hard edge, no macular sparing. Keys: H toggles the filter, B flips the side.
+- **Controller bindings:** A, B, X or Y toggles the filter. Either index trigger flips the side. So the person wearing the headset can switch without the keyboard.
+- **Result on the Quest Pro:** works and follows the eyes. The boundary still feels jittery. Investigating next, starting from observation before picking a fix.
 
 ### Gaze v1: head-relative gaze and fixation filter
 

@@ -22,7 +22,9 @@ namespace Hemianopia.Rendering
     /// It uses RAW gaze on purpose. Any smoothing would add lag, and a lagging boundary lets people
     /// peek into the blind half right after a saccade. See Docs/FILTER.md.
     ///
-    /// Keys in Play mode: H toggles the filter, B flips the blind side.
+    /// Controls in Play mode:
+    ///   Keyboard:   H toggles the filter, B flips the blind side
+    ///   Controllers: A, B, X or Y toggles the filter, either index trigger flips the blind side
     /// </summary>
     public class HemianopiaController : MonoBehaviour
     {
@@ -53,22 +55,46 @@ namespace Hemianopia.Rendering
 
         void Update()
         {
+            if (TogglePressed()) ToggleFilter();
+            if (FlipPressed()) FlipBlindSide();
+        }
+
+        /// <summary>Turns the simulated hemianopia on or off.</summary>
+        public void ToggleFilter()
+        {
+            filterEnabled = !filterEnabled;
+            Debug.Log($"[Hemianopia] Filter {(filterEnabled ? "ON" : "OFF")}");
+        }
+
+        /// <summary>Switches which half of the visual field is blind.</summary>
+        public void FlipBlindSide()
+        {
+            blindSide = blindSide == BlindSide.Left ? BlindSide.Right : BlindSide.Left;
+            Debug.Log($"[Hemianopia] Blind side: {blindSide}");
+        }
+
+        // Keyboard H, or any face button on either Touch controller (A, B on the right, X, Y on the left).
+        static bool TogglePressed()
+        {
 #if ENABLE_INPUT_SYSTEM
-            Keyboard kb = Keyboard.current;
-            if (kb == null) return;
-
-            if (kb.hKey.wasPressedThisFrame)
-            {
-                filterEnabled = !filterEnabled;
-                Debug.Log($"[Hemianopia] Filter {(filterEnabled ? "ON" : "OFF")}");
-            }
-
-            if (kb.bKey.wasPressedThisFrame)
-            {
-                blindSide = blindSide == BlindSide.Left ? BlindSide.Right : BlindSide.Left;
-                Debug.Log($"[Hemianopia] Blind side: {blindSide}");
-            }
+            if (Keyboard.current != null && Keyboard.current.hKey.wasPressedThisFrame) return true;
 #endif
+            const OVRInput.Controller touch = OVRInput.Controller.Touch; // both controllers
+            return OVRInput.GetDown(OVRInput.RawButton.A, touch)
+                || OVRInput.GetDown(OVRInput.RawButton.B, touch)
+                || OVRInput.GetDown(OVRInput.RawButton.X, touch)
+                || OVRInput.GetDown(OVRInput.RawButton.Y, touch);
+        }
+
+        // Keyboard B, or the index trigger (the front trigger under your pointer finger) on either controller.
+        static bool FlipPressed()
+        {
+#if ENABLE_INPUT_SYSTEM
+            if (Keyboard.current != null && Keyboard.current.bKey.wasPressedThisFrame) return true;
+#endif
+            const OVRInput.Controller touch = OVRInput.Controller.Touch;
+            return OVRInput.GetDown(OVRInput.RawButton.LIndexTrigger, touch)
+                || OVRInput.GetDown(OVRInput.RawButton.RIndexTrigger, touch);
         }
 
         void Apply(GazeProvider gaze)

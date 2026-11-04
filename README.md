@@ -51,7 +51,13 @@ git clone https://github.com/RRfyOfficial/Hemianopia-Rendering.git
 
 Connect the headset over Link and press Play in Unity. The dot turns green and follows your eyes.
 
-**Keys in Play mode:** **R** switches the dot between stable and raw gaze. **H** toggles the hemianopia filter. **B** flips the blind side.
+**Controls in Play mode:**
+
+| Action | Keyboard | Controllers |
+|---|---|---|
+| Toggle the hemianopia filter | H | A, B, X or Y |
+| Flip the blind side | B | Either index trigger |
+| Gaze dot: stable vs raw | R | |
 
 ## Project layout
 
