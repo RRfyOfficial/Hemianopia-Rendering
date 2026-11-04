@@ -4,6 +4,14 @@ Newest first. Each entry says what changed and why.
 
 ## 2026-11-03
 
+### Hemianopia filter v0 (layer 3)
+
+- **Added `HemianopiaFilter.shader`:** an image-space pass after the scene renders. Per pixel it recovers the world direction the pixel shows (inverse view-projection), then checks which side of the gaze line it's on with one dot product. Blind side goes black. Details in [FILTER.md](FILTER.md).
+- **Added `HemianopiaController`:** sends the gaze "right" vector, blind side, and color to the shader every frame, inside `GazeUpdated` (after the final head update). Uses raw gaze only, so the boundary never lags behind a saccade.
+- **Why per pixel and not "left half of the screen":** the condition is locked to the eyes, not the head. The boundary has to move whenever the eyes move.
+- **Both eyes for free:** each eye renders with its own camera, so both lose the same half of the world, matching real hemianopia.
+- **v0 choices:** left side blind by default, pure black, hard edge, no macular sparing. Keys: H toggles the filter, B flips the side.
+
 ### Gaze v1: head-relative gaze and fixation filter
 
 - **Problem:** the gaze dot jittered while turning the head. The world rendered smoothly, so it wasn't frame rate.
@@ -38,4 +46,5 @@ The Project Setup Tool's Fix All turns some of these back on. Fix items one at a
 
 ## Next
 
-- **v0 hemianopia filter:** a URP full-screen pass that hides one half of the visual field, locked to raw gaze, with a hard edge.
+- **Test filter v0 on the Quest Pro** and check the boundary stays locked to the eyes during fast saccades.
+- **Filter v1 with Tamanna:** what the blind half should look like, edge softness, macular sparing.

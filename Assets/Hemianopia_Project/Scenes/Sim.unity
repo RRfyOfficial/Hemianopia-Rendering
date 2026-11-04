@@ -495,6 +495,7 @@ GameObject:
   - component: {fileID: 1211825481}
   - component: {fileID: 1211825480}
   - component: {fileID: 1211825479}
+  - component: {fileID: 1211825482}
   m_Layer: 0
   m_Name: Gaze
   m_TagString: Untagged
@@ -514,6 +515,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: f0b13af656e579341837372e1e2d5d9b, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::Hemianopia.Gaze.GazeDot
+  useStableGaze: 1
   angularSizeDegrees: 0.8
   maxDistance: 30
   fallbackDistance: 2
@@ -533,6 +535,8 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::Hemianopia.Gaze.GazeProvider
   mode: 0
   viewCamera: {fileID: 0}
+  snapThresholdDegrees: 2
+  easeTimeConstant: 0.08
 --- !u!4 &1211825481
 Transform:
   m_ObjectHideFlags: 0
@@ -548,6 +552,21 @@ Transform:
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &1211825482
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1211825478}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: e25e30357721b034d97c27d35cd6b08e, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::Hemianopia.Rendering.HemianopiaController
+  filterEnabled: 1
+  blindSide: 0
+  blindColor: {r: 0, g: 0, b: 0, a: 1}
 --- !u!1001 &1245328768
 PrefabInstance:
   m_ObjectHideFlags: 0
