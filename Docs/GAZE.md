@@ -6,7 +6,7 @@ Files in `Assets/Hemianopia_Project/Scripts/Gaze/`:
 
 | File | Job |
 |---|---|
-| `GazeProvider.cs` | Reads gaze, stores it relative to the head, exposes raw and stable versions |
+| `GazeProvider.cs` | Reads gaze, stores it relative to the head, exposes raw and stable versions, and finds the 3D fixation point |
 | `FixationFilter.cs` | Splits gaze into fixations (holding still) and saccades (jumps) |
 | `GazeDot.cs` | Debug marker at the gaze point |
 
@@ -74,7 +74,29 @@ Render
 
 **Rule:** the hemianopia filter must use raw gaze. Smoothing adds lag. If the blind half lags behind a saccade, the person gets a split second to see into the area that's supposed to be gone, and the simulation is broken.
 
-## 5. The fixation filter
+## 5. The fixation point (where in 3D)
+
+A direction says *which way* you're looking. The hemianopia filter also needs *where*: the 3D spot both eyes are pointed at, because each eye's boundary has to pass through it (see [FILTER.md](FILTER.md), section 2).
+
+`GazeProvider` finds it by casting the raw gaze ray into the scene:
+
+$$\mathbf{F} = \mathbf{o} + t^{*}\,\hat{\mathbf{g}}$$
+
+where $t^{*}$ is the distance to the first surface hit. If nothing is hit, $t^{*}$ is `noHitDistance` (100 m by default).
+
+This stands in for vergence, how much the two eyes angle inward. In VR you're almost always looking at a surface, so the surface you hit is where your eyes converge.
+
+| Property | Meaning |
+|---|---|
+| `RawFixationPoint` | The 3D point, in world space |
+| `RawFixationDistance` | Meters from the gaze origin |
+| `RawFixationHit` | False when looking at empty space |
+
+Updated in `LateUpdate` and again right before rendering, from **raw** gaze. Not to be confused with the fixation *filter* below, which is about holding still vs jumping.
+
+Limitations: it changes depth instantly when the gaze crosses an object's edge, while real vergence takes a moment. And it assumes you look *at* surfaces, not through gaps.
+
+## 6. The fixation filter
 
 Real eyes don't glide. They jump (saccades, a few times per second) and hold still in between (fixations), with tracker noise on top. The filter keeps the jumps and irons out the wobble.
 
@@ -110,7 +132,7 @@ The defaults are a starting guess. Tune them on the headset using the R toggle (
 - **The 2 degree default is a guess.** It should come from the Quest Pro's measured accuracy and noise, ideally measured on our own setup.
 - **One update per rendered frame.** The tracker may sample at a different rate than the display.
 
-## 6. How to test
+## 7. How to test
 
 1. No headset: press Play. A red dot follows the mouse.
 2. Quest Pro over Link: press Play. The dot turns green and follows your eyes.
@@ -118,7 +140,7 @@ The defaults are a starting guess. Tune them on the headset using the R toggle (
 4. Press R to compare stable and raw gaze.
 5. The console prints which source is live (lines starting with `[Gaze]`).
 
-## 7. Open questions
+## 8. Open questions
 
 - How low does end-to-end gaze latency need to be before people stop noticing that a gaze-locked mask lags behind their saccades?
 - What snap threshold matches the Quest Pro's real tracking noise?

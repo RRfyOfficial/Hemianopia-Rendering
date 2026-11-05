@@ -2,6 +2,22 @@
 
 Newest first. Each entry says what changed and why.
 
+## 2026-11-04
+
+### Filter v0.1: each eye's boundary goes through the fixation point
+
+- **Problem:** with a cube close to the face, the gaze dot sat away from the black edge, as if the cube pushed it off.
+- **Test:** right eye only, the dot disappeared into the black. Left eye only, it sat to the right of the edge with a gap. Far away, it sat on the edge.
+- **Cause:** both eyes shared one gaze direction, so their boundaries ran parallel, half the eye spacing apart, instead of crossing at the fixation point. Error about 3.7° at 0.5 m and 0.9° at 2 m.
+- **Fix:** `GazeProvider` now finds the 3D fixation point (raycast along raw gaze). The shader builds each eye's own line of sight to that point, so each eye's boundary runs through it. Details in [FILTER.md](FILTER.md), section 2.
+
+### Observed, not fixed yet
+
+- **Shimmer while holding still.** Likely tracker noise plus the small eye movements that happen even during a fixation. Slightly worse when looking toward the edges of the view.
+- **Extra shimmer during head movement.** Two candidates: the headset shifting slightly on the face, or eye data and head data coming from slightly different moments. Needs measurement, not guessing.
+- **Slight tilt of the boundary in diagonal gaze.** By the math the boundary is always vertical relative to the head, so it shouldn't tilt. Suspects: slight head roll, lens distortion near the edge of the lens. Side note: in real hemianopia the boundary is fixed to the retina, and the eye twists slightly in diagonal gaze (Listing's law), so a small tilt would actually be realistic.
+- **Eye tracking keeps working with one eye closed** (checked during the one-eye test).
+
 ## 2026-11-03
 
 ### Hemianopia filter v0 (layer 3)
@@ -48,5 +64,6 @@ The Project Setup Tool's Fix All turns some of these back on. Fix items one at a
 
 ## Next
 
-- **Test filter v0 on the Quest Pro** and check the boundary stays locked to the eyes during fast saccades.
+- **Test filter v0.1 on the Quest Pro:** with a cube at arm's length, the edge should run through the gaze dot in each eye.
+- **Measure the shimmer:** log gaze and head motion so we can look at real numbers before choosing a fix.
 - **Filter v1 with Tamanna:** what the blind half should look like, edge softness, macular sparing.

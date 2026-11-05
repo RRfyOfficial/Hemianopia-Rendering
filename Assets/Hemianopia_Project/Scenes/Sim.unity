@@ -590,7 +590,7 @@ Transform:
   m_GameObject: {fileID: 777523146}
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: -4.3, y: 1.11, z: -4.2}
+  m_LocalPosition: {x: -0.98, y: 1.11, z: -5.67}
   m_LocalScale: {x: 0.3, y: 0.3, z: 0.3}
   m_ConstrainProportionsScale: 1
   m_Children: []
@@ -614,7 +614,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 1
+  m_IsActive: 0
 --- !u!65 &796943785
 BoxCollider:
   m_ObjectHideFlags: 0
@@ -702,7 +702,7 @@ Transform:
   m_GameObject: {fileID: 796943784}
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: -4.4, y: 1.11, z: -7.07}
+  m_LocalPosition: {x: -2.32, y: 1.11, z: -3.7}
   m_LocalScale: {x: 0.3, y: 0.3, z: 0.3}
   m_ConstrainProportionsScale: 1
   m_Children: []
@@ -761,6 +761,11 @@ MonoBehaviour:
   viewCamera: {fileID: 0}
   snapThresholdDegrees: 2
   easeTimeConstant: 0.08
+  fixationMaxDistance: 50
+  noHitDistance: 100
+  fixationLayers:
+    serializedVersion: 2
+    m_Bits: 4294967295
 --- !u!4 &1211825481
 Transform:
   m_ObjectHideFlags: 0
@@ -805,11 +810,11 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 400004, guid: 126d619cf4daa52469682f85c1378b4a, type: 3}
       propertyPath: m_LocalPosition.x
-      value: 0
+      value: -0.99
       objectReference: {fileID: 0}
     - target: {fileID: 400004, guid: 126d619cf4daa52469682f85c1378b4a, type: 3}
       propertyPath: m_LocalPosition.y
-      value: 1.8
+      value: 1.18
       objectReference: {fileID: 0}
     - target: {fileID: 400004, guid: 126d619cf4daa52469682f85c1378b4a, type: 3}
       propertyPath: m_LocalPosition.z

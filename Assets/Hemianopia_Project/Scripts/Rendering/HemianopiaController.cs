@@ -38,7 +38,8 @@ namespace Hemianopia.Rendering
         public Color blindColor = Color.black;
 
         static readonly int EnabledId    = Shader.PropertyToID("_HemiEnabled");
-        static readonly int GazeRightId  = Shader.PropertyToID("_HemiGazeRightWS");
+        static readonly int FixationId   = Shader.PropertyToID("_HemiFixationWS");
+        static readonly int HeadUpId     = Shader.PropertyToID("_HemiHeadUpWS");
         static readonly int BlindSignId  = Shader.PropertyToID("_HemiBlindSign");
         static readonly int BlindColorId = Shader.PropertyToID("_HemiBlindColor");
 
@@ -105,19 +106,16 @@ namespace Hemianopia.Rendering
                 return;
             }
 
-            // RAW gaze, never the stable one. No smoothing, no added lag.
-            Vector3 gazeForward = gaze.RawGazeRay.direction;
+            // RAW fixation point, never the stable one. No smoothing, no added lag.
+            // This is the 3D spot both eyes are looking at. The shader draws each eye's boundary
+            // through it, so the two boundaries cross where you look instead of running parallel.
+            Vector3 fixation = gaze.RawFixationPoint;
 
-            // The blind boundary is the vertical line through wherever the eyes point.
             // "Vertical" follows the head, so tilting your head tilts the boundary with it.
-            // right = up x forward (Unity is left-handed, so this points to the viewer's right).
             Vector3 headUp = gaze.viewCamera.transform.up;
-            Vector3 gazeRight = Vector3.Cross(headUp, gazeForward);
-            if (gazeRight.sqrMagnitude < 1e-6f)
-                gazeRight = gaze.viewCamera.transform.right; // looking straight up or down, fall back
-            gazeRight.Normalize();
 
-            Shader.SetGlobalVector(GazeRightId, gazeRight);
+            Shader.SetGlobalVector(FixationId, fixation);
+            Shader.SetGlobalVector(HeadUpId, headUp);
             Shader.SetGlobalFloat(BlindSignId, blindSide == BlindSide.Left ? -1f : 1f);
             Shader.SetGlobalColor(BlindColorId, blindColor);
             Shader.SetGlobalFloat(EnabledId, 1f);

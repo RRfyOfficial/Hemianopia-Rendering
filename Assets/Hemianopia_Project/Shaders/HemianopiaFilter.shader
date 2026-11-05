@@ -1,12 +1,13 @@
-// Layer 3: the hemianopia filter (v0).
+// Layer 3: the hemianopia filter (v0.1).
 //
 // An image-space pass that runs after the scene is fully rendered. For every pixel it asks:
 //   1. Which direction in the world does this pixel show?   (pixel -> ray)
-//   2. Is that direction left or right of where the eyes point?
+//   2. Is that direction left or right of THIS EYE's line of sight to the fixation point?
 // If it's on the blind side, the pixel is replaced with the blind color.
 //
-// Because each eye renders its own image with its own camera, this runs once per eye,
-// and both eyes lose the same half of the world. That matches real (homonymous) hemianopia.
+// Each eye renders its own image with its own camera, so this runs once per eye.
+// Each eye's boundary passes through the same 3D fixation point (where both eyes converge),
+// so the two boundaries cross exactly where the person is looking, like real hemianopia.
 //
 // Driven every frame by HemianopiaController.cs through global shader properties.
 // Used by a Full Screen Pass Renderer Feature with "Fetch Color Buffer" on,
@@ -32,9 +33,10 @@ Shader "Hemianopia/HemianopiaFilter"
 
             // Global properties, set every frame by HemianopiaController.cs
             float  _HemiEnabled;      // 0 = pass the image through untouched, 1 = apply the filter
-            float3 _HemiGazeRightWS;  // unit vector pointing "right" relative to the gaze, in world space
+            float3 _HemiFixationWS;   // the 3D point both eyes are looking at, world space
+            float3 _HemiHeadUpWS;     // the head's up direction, world space
             float  _HemiBlindSign;    // -1 = left half is blind, +1 = right half is blind
-            half4  _HemiBlindColor;   // what the blind half shows (black in v0)
+            half4  _HemiBlindColor;   // what the blind half shows (black for now)
 
             half4 Frag(Varyings input) : SV_Target
             {
@@ -46,15 +48,25 @@ Shader "Hemianopia/HemianopiaFilter"
                 if (_HemiEnabled < 0.5)
                     return sceneColor;
 
+                // Position of the eye currently being rendered (different for left and right).
+                float3 eyePos = GetCameraPositionWS();
+
                 // 1. Pixel -> ray. Undo this eye's projection and view (inverse view-projection matrix)
                 //    to find a world point on the near plane behind this pixel, then point from the eye to it.
                 float3 pointWS = ComputeWorldSpacePosition(uv, UNITY_NEAR_CLIP_VALUE, UNITY_MATRIX_I_VP);
-                float3 dirWS   = normalize(pointWS - GetCameraPositionWS());
+                float3 dirWS   = normalize(pointWS - eyePos);
 
-                // 2. Which side of the gaze line? Positive = right of gaze, negative = left of gaze.
-                float side = dot(dirWS, _HemiGazeRightWS);
+                // 2. This eye's own line of sight: from this eye to the fixation point.
+                //    Its "right" vector is perpendicular to that line and to the head's up.
+                float3 eyeGaze  = normalize(_HemiFixationWS - eyePos);
+                float3 eyeRight = cross(_HemiHeadUpWS, eyeGaze);
+                float  len      = length(eyeRight);
+                eyeRight = len > 1e-4 ? eyeRight / len : float3(1, 0, 0); // looking straight up or down
 
-                // 3. Blind if it's on the blind side. Hard edge in v0.
+                // 3. Which side of this eye's line of sight? Positive = right, negative = left.
+                float side = dot(dirWS, eyeRight);
+
+                // 4. Blind if it's on the blind side. Hard edge for now.
                 float blind = step(0.0, side * _HemiBlindSign);
 
                 return lerp(sceneColor, _HemiBlindColor, blind);

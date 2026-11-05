@@ -58,6 +58,16 @@ namespace Hemianopia.Gaze
         [Tooltip("How fast the stable gaze eases toward small movements, in seconds. Smaller follows faster, bigger is calmer.")]
         public float easeTimeConstant = 0.08f;
 
+        [Header("Fixation point (the 3D spot the eyes are looking at)")]
+        [Tooltip("How far to search along the raw gaze for a surface, in meters.")]
+        public float fixationMaxDistance = 50f;
+
+        [Tooltip("Where to put the fixation point when the gaze hits nothing, in meters. Far away means both eyes look almost parallel.")]
+        public float noHitDistance = 100f;
+
+        [Tooltip("Which layers count as things you can look at.")]
+        public LayerMask fixationLayers = ~0;
+
         // ---------- Head-relative state (camera-local space) ----------
 
         /// <summary>Gaze origin in head (camera-local) space.</summary>
@@ -91,6 +101,19 @@ namespace Hemianopia.Gaze
 
         /// <summary>Seconds since the current fixation started.</summary>
         public float FixationDuration => _filter.FixationDuration;
+
+        /// <summary>
+        /// The 3D point the eyes are looking at: where the raw gaze ray hits the scene.
+        /// Both eyes point at this spot, so each eye's hemianopia boundary passes through it.
+        /// Updated once per frame (LateUpdate, then again right before rendering).
+        /// </summary>
+        public Vector3 RawFixationPoint { get; private set; }
+
+        /// <summary>Distance from the gaze origin to RawFixationPoint, in meters.</summary>
+        public float RawFixationDistance { get; private set; }
+
+        /// <summary>True if the raw gaze actually hit a surface (false = looking at empty space).</summary>
+        public bool RawFixationHit { get; private set; }
 
         /// <summary>Kept for older scripts. Same as RawGazeRay.</summary>
         public Ray GazeRay => RawGazeRay;
@@ -127,6 +150,7 @@ namespace Hemianopia.Gaze
 
             // Sample here so gameplay scripts reading gaze in Update/LateUpdate get this frame's data.
             Sample();
+            if (HasGaze) UpdateFixationPoint();
 
             // Subscribe on the first LateUpdate instead of in Start. By now every Start() has run,
             // so OVRCameraRig has already subscribed its late head update. Subscribing after it
@@ -149,6 +173,7 @@ namespace Hemianopia.Gaze
 
             if (HasGaze)
             {
+                UpdateFixationPoint();
                 _filter.Step(RawGazeRay.direction, Time.deltaTime, snapThresholdDegrees, easeTimeConstant);
             }
 
@@ -188,6 +213,28 @@ namespace Hemianopia.Gaze
                     HasGaze = true;
                 }
                 SetSource(false);
+            }
+        }
+
+        /// <summary>
+        /// Finds the 3D spot the eyes are looking at by casting the raw gaze ray into the scene.
+        /// This stands in for vergence (how much the two eyes angle inward): in VR you're almost
+        /// always looking at a surface, so the surface you hit is where both eyes converge.
+        /// </summary>
+        void UpdateFixationPoint()
+        {
+            Ray ray = RawGazeRay;
+            if (Physics.Raycast(ray, out RaycastHit hit, fixationMaxDistance, fixationLayers, QueryTriggerInteraction.Ignore))
+            {
+                RawFixationPoint = hit.point;
+                RawFixationDistance = hit.distance;
+                RawFixationHit = true;
+            }
+            else
+            {
+                RawFixationPoint = ray.GetPoint(noHitDistance);
+                RawFixationDistance = noHitDistance;
+                RawFixationHit = false;
             }
         }
 
