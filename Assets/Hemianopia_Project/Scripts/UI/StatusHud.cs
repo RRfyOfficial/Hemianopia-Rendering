@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.Globalization;
 using System.Text;
 using UnityEngine;
@@ -16,6 +17,7 @@ namespace Hemianopia.UI
     /// going on without taking the headset off or reading the console:
     ///   - gaze source (eyes or mouse)
     ///   - calibration correction: ON (green), OFF (orange), or none yet
+    ///   - time-matching (the latency fix): ON or OFF, and how old the eye data is
     ///   - the last calibration's numbers (error before and after, noise at center and outer dots)
     ///   - the hemianopia filter's state
     /// Whenever something gets switched, a big line flashes for a moment.
@@ -28,6 +30,28 @@ namespace Hemianopia.UI
     [DisallowMultipleComponent]
     public class StatusHud : MonoBehaviour
     {
+        public static StatusHud Instance { get; private set; }
+
+        /// <summary>
+        /// A yellow instruction line at the top of the panel, e.g. during a test. Pass null to clear it.
+        /// Safe to call when there's no panel in the scene.
+        /// </summary>
+        public static void SetBanner(string text)
+        {
+            if (Instance != null) Instance._banner = text;
+        }
+
+        /// <summary>
+        /// A lasting extra line under the usual ones, stored under a key so it can be replaced later
+        /// (e.g. "headmotion" for the latest head-motion test). Pass null to remove it.
+        /// </summary>
+        public static void SetLine(string key, string text)
+        {
+            if (Instance == null) return;
+            if (string.IsNullOrEmpty(text)) Instance._lines.Remove(key);
+            else Instance._lines[key] = text;
+        }
+
         [Tooltip("Show the panel. Toggle with I or the left menu button in Play mode.")]
         public bool visible = true;
 
@@ -62,13 +86,17 @@ namespace Hemianopia.UI
         string _flash;
         float _flashUntil;
         bool _primed;
-        bool _lastApply, _lastFilter;
+        bool _lastApply, _lastFilter, _lastTimeMatch;
+        float _ageAverageMs;
         BlindSide _lastSide;
         CalibrationResult _lastResult;
         readonly StringBuilder _sb = new StringBuilder();
+        string _banner;
+        readonly SortedDictionary<string, string> _lines = new SortedDictionary<string, string>();
 
         void Awake()
         {
+            Instance = this;
             if (gaze == null) gaze = FindAnyObjectByType<GazeProvider>();
             if (hemianopia == null) hemianopia = FindAnyObjectByType<HemianopiaController>();
             if (calibration == null) calibration = FindAnyObjectByType<CalibrationRunner>();
@@ -81,6 +109,7 @@ namespace Hemianopia.UI
 
         void OnDestroy()
         {
+            if (Instance == this) Instance = null;
             if (_panel != null) Destroy(_panel);
         }
 
@@ -144,6 +173,7 @@ namespace Hemianopia.UI
         void DetectChanges()
         {
             bool apply = gaze.applyCorrection;
+            bool timeMatch = gaze.timeMatchGaze;
             bool valid = gaze.Correction.IsValid;
             bool filter = hemianopia != null && hemianopia.filterEnabled;
             BlindSide side = hemianopia != null ? hemianopia.blindSide : BlindSide.Left;
@@ -158,6 +188,8 @@ namespace Hemianopia.UI
                         : "Calibration failed, press C to retry");
                 else if (apply != _lastApply && valid)
                     Flash(apply ? "Correction ON" : "Correction OFF");
+                else if (timeMatch != _lastTimeMatch)
+                    Flash(timeMatch ? "Time-matching ON" : "Time-matching OFF");
                 else if (filter != _lastFilter && !calibrating)
                     Flash(filter ? "Hemianopia filter ON" : "Hemianopia filter OFF");
                 else if (side != _lastSide)
@@ -166,6 +198,7 @@ namespace Hemianopia.UI
 
             _primed = true;
             _lastApply = apply;
+            _lastTimeMatch = timeMatch;
             _lastFilter = filter;
             _lastSide = side;
             _lastResult = result;
@@ -188,12 +221,36 @@ namespace Hemianopia.UI
             if (calibration != null && calibration.IsRunning)
                 _sb.Append("<color=#ffd75a>Calibrating: look at each white dot</color>\n");
 
+            if (!string.IsNullOrEmpty(_banner))
+                _sb.Append("<color=#ffd75a>").Append(_banner).Append("</color>\n");
+
             _sb.Append("Gaze: ").Append(gaze.IsEyeTracking ? "eyes" : "<color=#ff8a5d>mouse</color>");
             _sb.Append("     Correction: ");
             if (!gaze.Correction.IsValid) _sb.Append("<color=#aaaaaa>none yet (press C)</color>");
             else if (gaze.IsCorrectionActive) _sb.Append("<color=#5dff8a>ON</color>");
             else _sb.Append("<color=#ff8a5d>OFF</color>");
             _sb.Append('\n');
+
+            if (gaze.IsEyeTracking)
+            {
+                // Smoothed so the number is readable instead of flickering every frame.
+                _ageAverageMs = Mathf.Lerp(_ageAverageMs, gaze.SampleAgeMs, 0.05f);
+                _sb.Append("Time-matching: ");
+                switch (gaze.TimeMatchState)
+                {
+                    case TimeMatchStatus.Off: _sb.Append("<color=#ff8a5d>OFF</color>"); break;
+                    case TimeMatchStatus.HeadsetHistory: _sb.Append("<color=#5dff8a>ON</color> (headset's head history)"); break;
+                    case TimeMatchStatus.OwnHistory: _sb.Append("<color=#5dff8a>ON</color> (our own head history)"); break;
+                    case TimeMatchStatus.EstimatedLatency: _sb.AppendFormat(c, "<color=#5dff8a>ON</color> (estimated, assumes {0:0} ms)", gaze.assumedLatencyMs); break;
+                    case TimeMatchStatus.ClockMismatch: _sb.Append("<color=#ffd75a>can't run: eye clock doesn't match</color>"); break;
+                    case TimeMatchStatus.NoHistory: _sb.Append("<color=#ffd75a>can't run: no head pose for that moment</color>"); break;
+                    default: _sb.Append("-"); break;
+                }
+                if (gaze.TimeMatchState == TimeMatchStatus.ClockMismatch)
+                    _sb.AppendFormat(c, "     eye data age {0:0} ms (makes no sense)\n", gaze.SampleAgeMs);
+                else
+                    _sb.AppendFormat(c, "     eye data {0:0} ms old\n", _ageAverageMs);
+            }
 
             CalibrationResult r = calibration != null ? calibration.LastResult : null;
             if (r != null)
@@ -207,6 +264,9 @@ namespace Hemianopia.UI
 
             if (hemianopia != null)
                 _sb.Append("Filter: ").Append(hemianopia.filterEnabled ? $"ON, {hemianopia.blindSide.ToString().ToLowerInvariant()} side blind" : "OFF");
+
+            foreach (KeyValuePair<string, string> line in _lines)
+                _sb.Append('\n').Append(line.Value);
 
             return _sb.ToString();
         }

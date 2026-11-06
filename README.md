@@ -61,6 +61,8 @@ Connect the headset over Link and press Play in Unity. The dot turns green and f
 | Run the calibration check | C | Left thumbstick click |
 | Calibration correction on or off | V | Right thumbstick click |
 | Status panel in the headset on or off | I | Left menu button |
+| Run the head-motion test | T | Left grip |
+| Time-matching (latency fix) on or off | M | Right grip |
 
 ## Project layout
 
@@ -72,12 +74,13 @@ Assets/
     Scripts/Rendering/   layer 3: HemianopiaController
     Scripts/Calibration/ Step 1: CalibrationRunner
     Scripts/UI/          StatusHud (the in-headset status panel)
+    Scripts/Diagnostics/ HeadMotionTest (latency vs noise)
     Shaders/             layer 3: HemianopiaFilter.shader
     Materials/
   URPDefaultResources/   URP pipeline assets ("Medium" is the one in use everywhere)
   XR/, Oculus/           XR and Meta settings, managed by Unity and the Meta SDK
 Docs/                    design notes and the dev log (Unity ignores this folder)
-CalibrationLogs/         calibration results (local only, never committed)
+CalibrationLogs/         calibration and test results (local only, never committed)
 ```
 
 ## Ground rules
@@ -93,4 +96,5 @@ CalibrationLogs/         calibration results (local only, never committed)
 - [`Docs/GAZE.md`](Docs/GAZE.md): how the gaze system works, with the math
 - [`Docs/FILTER.md`](Docs/FILTER.md): how the hemianopia filter works, with the math and the Unity setup
 - [`Docs/CALIBRATION.md`](Docs/CALIBRATION.md): the calibration check, bias vs noise, with the math
+- [`Docs/HEAD_MOTION_TEST.md`](Docs/HEAD_MOTION_TEST.md): measuring latency vs noise while the head moves
 - [`Docs/DEVLOG.md`](Docs/DEVLOG.md): what we did, when, and why

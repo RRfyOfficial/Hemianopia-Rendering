@@ -5,8 +5,10 @@ using System.Globalization;
 using System.IO;
 using System.Text;
 using UnityEngine;
+using Hemianopia.Diagnostics;
 using Hemianopia.Gaze;
 using Hemianopia.Rendering;
+using Hemianopia.UI;
 #if ENABLE_INPUT_SYSTEM
 using UnityEngine.InputSystem;
 #endif
@@ -25,6 +27,9 @@ namespace Hemianopia.Calibration
     /// Then it shows a results picture (white = dot, red = tracker, green = after correction)
     /// and saves a CSV to CalibrationLogs/ (never committed).
     ///
+    /// The fitted correction is also saved per participant (CalibrationLogs/correction_<code>.json)
+    /// and loaded automatically next time you press Play, so it survives restarts.
+    ///
     /// Controls in Play mode:
     ///   C or left thumbstick click   start the check (press again during the results to close them)
     ///   V or right thumbstick click  turn the correction on or off, to compare
@@ -37,6 +42,9 @@ namespace Hemianopia.Calibration
         [Header("Who")]
         [Tooltip("Participant code saved with the results. Never a real name.")]
         public string participantCode = "P00";
+
+        [Tooltip("Load this participant's saved correction when Play starts.")]
+        public bool loadSavedCorrection = true;
 
         [Header("Dot grid (degrees from straight ahead, relative to the head)")]
         [Tooltip("The outer dots sit this far left and right.")]
@@ -90,6 +98,11 @@ namespace Hemianopia.Calibration
             if (gazeDot == null) gazeDot = FindAnyObjectByType<GazeDot>();
         }
 
+        void Start()
+        {
+            if (loadSavedCorrection) LoadSavedCorrection();
+        }
+
         void Update()
         {
             if (gaze == null) return;
@@ -97,7 +110,7 @@ namespace Hemianopia.Calibration
             if (CalibratePressed())
             {
                 if (IsRunning) _closeResults = true;
-                else StartCoroutine(Run());
+                else if (!HeadMotionTest.AnyRunning) StartCoroutine(Run());
             }
 
             if (ToggleCorrectionPressed())
@@ -165,7 +178,7 @@ namespace Hemianopia.Calibration
 
                     measured.Add(GazeCorrection.ToAngles(gaze.TrackerDirectionHead));
                     // True direction from the eyes' actual origin to the dot (not from the camera center).
-                    truth.Add(GazeCorrection.ToAngles(dotHead - gaze.GazeOriginHead));
+                    truth.Add(GazeCorrection.ToAngles(dotHead - gaze.TrackerOriginHead));
                 }
 
                 stats.Add(Summarize(nominal, measured, truth));
@@ -185,8 +198,12 @@ namespace Hemianopia.Calibration
 
             if (result.fitOk)
             {
+                result.correction.participant = participantCode;
+                result.correction.savedAt = result.timestamp;
                 gaze.Correction.CopyFrom(result.correction);
                 gaze.applyCorrection = true;
+                SaveCorrection(result.correction);
+                StatusHud.SetLine("calibration", null); // the fresh result shows on the panel instead
             }
 
             string path = Save(result);
@@ -353,7 +370,7 @@ namespace Hemianopia.Calibration
 
         // In the editor: <project>/CalibrationLogs (next to Assets, ignored by git).
         // On the headset: the app's private storage.
-        static string LogFolder()
+        public static string LogFolder()
         {
 #if UNITY_EDITOR
             return Path.GetFullPath(Path.Combine(Application.dataPath, "..", "CalibrationLogs"));
@@ -393,6 +410,47 @@ namespace Hemianopia.Calibration
             {
                 Debug.LogWarning($"[Calibration] Couldn't save the results: {e.Message}");
                 return null;
+            }
+        }
+
+        // ---------- Saved correction ----------
+
+        string CorrectionPath()
+        {
+            return Path.Combine(LogFolder(), $"correction_{participantCode}.json");
+        }
+
+        void SaveCorrection(GazeCorrection correction)
+        {
+            try
+            {
+                Directory.CreateDirectory(LogFolder());
+                File.WriteAllText(CorrectionPath(), JsonUtility.ToJson(correction, true));
+            }
+            catch (Exception e)
+            {
+                Debug.LogWarning($"[Calibration] Couldn't save the correction: {e.Message}");
+            }
+        }
+
+        void LoadSavedCorrection()
+        {
+            if (gaze == null) return;
+            string path = CorrectionPath();
+            if (!File.Exists(path)) return;
+            try
+            {
+                var loaded = JsonUtility.FromJson<GazeCorrection>(File.ReadAllText(path));
+                if (loaded == null || !loaded.IsValid) return;
+                gaze.Correction.CopyFrom(loaded);
+                gaze.applyCorrection = true;
+                string message = $"Using saved calibration for {loaded.participant} from {loaded.savedAt}. Re-run (C) if the headset moved.";
+                Debug.Log($"[Calibration] {message}");
+                StatusHud.SetLine("calibration", message);
+            }
+            catch (Exception e)
+            {
+                Debug.LogWarning($"[Calibration] Couldn't load the saved correction: {e.Message}");
             }
         }
 

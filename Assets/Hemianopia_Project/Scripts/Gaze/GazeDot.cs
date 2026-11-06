@@ -120,7 +120,9 @@ namespace Hemianopia.Gaze
                 return;
             }
 
-            Quaternion undo = Quaternion.FromToRotation(gaze.RawGazeRay.direction, gaze.TrackerGazeRay.direction);
+            if (gaze.viewCamera == null) return;
+            Quaternion head = gaze.viewCamera.transform.rotation;
+            Quaternion undo = head * Quaternion.FromToRotation(gaze.CorrectedDirectionHead, gaze.TrackerDirectionHead) * Quaternion.Inverse(head);
             Ray ghostRay = new Ray(mainRay.origin, undo * mainRay.direction);
             float distance = Physics.Raycast(ghostRay, out RaycastHit hit, maxDistance)
                 ? hit.distance * 0.98f

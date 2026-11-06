@@ -722,6 +722,7 @@ GameObject:
   - component: {fileID: 1211825482}
   - component: {fileID: 1211825483}
   - component: {fileID: 1211825484}
+  - component: {fileID: 1211825485}
   m_Layer: 0
   m_Name: Gaze
   m_TagString: Untagged
@@ -772,6 +773,10 @@ MonoBehaviour:
     serializedVersion: 2
     m_Bits: 4294967295
   applyCorrection: 1
+  timeMatchGaze: 1
+  maxTimeMatchMs: 250
+  estimateWhenClocksDiffer: 1
+  assumedLatencyMs: 50
 --- !u!4 &1211825481
 Transform:
   m_ObjectHideFlags: 0
@@ -815,6 +820,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::Hemianopia.Calibration.CalibrationRunner
   participantCode: P01
+  loadSavedCorrection: 1
   horizontalExtentDegrees: 20
   verticalExtentDegrees: 12
   dotDistance: 2
@@ -848,6 +854,30 @@ MonoBehaviour:
   flashSeconds: 1.5
   gaze: {fileID: 0}
   hemianopia: {fileID: 0}
+  calibration: {fileID: 0}
+--- !u!114 &1211825485
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1211825478}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: e02e97b67cb19a148ba4a6cb5c303d28, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::Hemianopia.Diagnostics.HeadMotionTest
+  participantCode: P00
+  countdownSeconds: 3
+  stillSeconds: 4
+  slowSeconds: 8
+  fastSeconds: 8
+  dotDistance: 2
+  dotSizeDegrees: 0.6
+  minHeadSpeedForFit: 5
+  gaze: {fileID: 0}
+  hemianopia: {fileID: 0}
+  gazeDot: {fileID: 0}
   calibration: {fileID: 0}
 --- !u!1001 &1245328768
 PrefabInstance:

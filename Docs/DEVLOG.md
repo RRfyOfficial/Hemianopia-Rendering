@@ -31,6 +31,63 @@ Newest first. Each entry says what changed and why.
 - **Added `StatusHud`:** a head-locked panel under the view with gaze source, correction ON/OFF, last calibration numbers and filter state. Changes flash in big text. I or the left menu button toggles it.
 - **Added the ghost dot to `GazeDot`:** while the correction is on, a small red dot shows where the tracker alone would put your gaze.
 
+### Head-motion test (latency vs noise)
+
+- **Why:** the calibration dots move with the head, so they never tested head motion. With the head still, noise was only about 0.3°, so the shimmer during head movement needs its own test.
+- **Added `HeadMotionTest`:** a dot fixed in the room, then still, slow and fast head turning phases with instructions on the status panel. T or the left grip starts it.
+- **The trick:** with eyes on a fixed dot, a perfect system shows zero error at any head speed. If eye data lags the head data by a delay, error ≈ head speed × delay. A straight-line fit of error against head speed gives the delay as its slope, and the scatter around it is the noise. Details in [HEAD_MOTION_TEST.md](HEAD_MOTION_TEST.md).
+- **`StatusHud`** can now show instructions (`SetBanner`) and lasting result lines (`SetLine`) from other scripts.
+- Calibration won't start while the head-motion test runs.
+
+### First head-motion results
+
+- **8 runs (P01), the first 3 were warm-ups** (still error around 20°, eyes not on the dot yet). The last 5 agree with each other.
+- **Still error about 1.4°**, matching the uncorrected bias from calibration (about 1.2°). Two different tests agree.
+- **Delay about 80 ms** (72 to 87 ms across the 5 good runs). The error leans in the direction of the head turn at every speed, which is the latency fingerprint.
+
+| Head turning speed | Typical error | Lean toward the turn |
+|---|---|---|
+| Still | 1.4° | +0.6° |
+| 5 to 15 °/s | 2.6° | +1.9° |
+| 15 to 30 °/s | 3.0° | +2.6° |
+| 30 to 60 °/s | 2.2° | +1.8° |
+
+- **Latency is about a third of the story.** The delay line explains about 34% of the error while moving. Roughly 2° of other wobble appears when the head moves, and the error stops growing above about 30 °/s, which pure latency can't explain. Suspects: the headset shifting, the tracker getting worse during motion, small catch-up eye movements.
+- **The tracker is slower than the display:** about 50 eye samples per second vs 72 frames, so about 3 in 10 frames reuse the previous eye sample.
+- **Caveats:** the correction was off in every run (it didn't survive restarting Play), and the "fast" phase never went past about 60 °/s.
+
+### Calibration persists, time-matching (latency fix)
+
+- **The correction now survives restarting Play:** saved per participant to `CalibrationLogs/correction_<code>.json` and loaded on start. The status panel says when it was saved.
+- **Time-matching (experiment, on by default):** each eye sample is re-paired with the head pose from its own timestamp (`GetNodePoseStateAtTime`), instead of the current head. That should cancel the overshoot while fixating during head motion, and the steps from the slower tracker. Details in [GAZE.md](GAZE.md), section 5.
+- **It's falsifiable:** with it on, the head-motion test's delay should drop toward 0. Negative means it over-corrects. M or the right grip toggles it for the A/B.
+- **Eye data age** (sample timestamp vs the runtime clock) now shows on the status panel and in the head-motion CSV, a second, direct look at latency.
+- The ghost dot now shows the calibration correction only, and calibration reads the raw tracker origin and direction, both before time-matching.
+- **First try in the headset:** the panel said time-matching found no head history. Two possible causes, so the panel now names which one (clocks disagree vs no past head pose), and the console logs the numbers once.
+- **Added a fallback:** our own ring buffer of the last ~1.5 s of head poses, stamped with the headset's clock and blended between the two poses around each eye sample's time. Used whenever the headset can't answer for a past time.
+- **Second try:** the panel said the eye clock doesn't match, with an eye data "age" of about 188,000 s (52 hours). Over Link, the eye timestamps are on a different clock than the runtime, with a different starting point.
+- **Fix:** time-matching now detects which clock the eye time matches (head-pose clock, runtime clock, or neither). With neither, it estimates each sample's moment as its arrival time minus `assumedLatencyMs` (80 ms to start, from the head-motion test). The head-motion test suggests a tuned value from whatever delay is left over.
+- **Third try (head-motion test, correction on):** still error **0.35°**, down from 1.4° without the correction. That's fresh data the calibration never saw, so it's an honest check that the correction works.
+- **Bug found in that run:** time-matching was applied to 0% of frames. The estimate mode was labeled but not counted as "matched", so the turn was never applied, and the leftover delay (63 ms) was just the original latency. Fixed. The test now refuses to suggest a latency when time-matching ran on less than half the frames.
+
+### Head-motion verdict: a fixed lean, not latency
+
+- **Time-matching ON at 80 ms, then 50 ms:** it helped at slow and medium speeds (error 3.0° down to 1.5° at about 28 °/s) but over-corrected at fast turns (leaning up to 6° *against* the turn at about 150 °/s).
+- **Five fast runs with time-matching OFF** (100 to 300 °/s peaks, about 4,600 frames) settled it:
+
+| Head speed | Lean toward the turn |
+|---|---|
+| ~14 °/s | +2.1° |
+| ~27 °/s | +2.6° |
+| ~52 °/s | +0.8° |
+| ~98 °/s | +2.0° |
+| ~157 °/s | +2.9° |
+| ~217 °/s | +3.9° |
+
+- **Fit across those:** a fixed lean of about **+2.0°** plus only about **5 ms** of delay. The real latency is small (roughly 5 to 20 ms depending on how it's fitted). The earlier "80 ms" was a fixed lean that looked like a delay because the first runs only had slow turns.
+- **Changes:** time-matching is now off by default (kept for experiments). The head-motion test now fits a fixed lean and a delay together, and its reading says which one it sees, and warns when the fast phase is too slow.
+- **Open question:** is the 2° lean the headset slipping on the face, or the eyes really slipping with the head? Cheap test: tighten the strap and rerun. If the lean shrinks, it's the headset. A good question for Tamanna too: do healthy eyes slip a little during head turns while fixating?
+
 ## 2026-11-04
 
 ### Filter v0.1: each eye's boundary goes through the fixation point
@@ -94,8 +151,9 @@ The Project Setup Tool's Fix All turns some of these back on. Fix items one at a
 ## Next
 
 - **Run the calibration check on Tamanna** too, and compare with P01.
-- **Measure gaze during head movement**, since the calibration dots move with the head and never test it.
+- **Strap test:** tighten the headset strap and rerun the head-motion test, to see if the 2° lean is the headset slipping.
+- **Smart smoothing**, tuned from the measured noise (about 0.3° still, 2 to 4° spread while moving).
+- **Native build vs Link:** less urgent now that latency looks small, but still worth one comparison.
 - **Add a validation run** (a second pass with the correction on) for an honest after-correction error.
 - **Smart smoothing on the filter**, tuned from the noise numbers.
-- **Native build vs Link** comparison for latency.
 - **Filter v1 with Tamanna:** what the blind half should look like, edge softness, macular sparing.

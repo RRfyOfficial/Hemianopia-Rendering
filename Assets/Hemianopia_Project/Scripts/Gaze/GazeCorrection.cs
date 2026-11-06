@@ -29,6 +29,12 @@ namespace Hemianopia.Gaze
         /// <summary>True if learned from real eye tracking. A mouse fit is never applied to eyes, or the reverse.</summary>
         public bool FitOnEyes;
 
+        /// <summary>Participant code this correction belongs to (saved with it).</summary>
+        public string participant = "";
+
+        /// <summary>When the calibration that produced this correction ran (saved with it).</summary>
+        public string savedAt = "";
+
         // Sanity limits. Real tracker bias is a few degrees, and its scale is close to 1.
         // A fit far outside these means the calibration went wrong (looked away, lots of blinks).
         public const float MaxOffsetDegrees = 10f;
@@ -69,6 +75,8 @@ namespace Hemianopia.Gaze
             b0 = 0f; b1 = 1f; b2 = 0f;
             IsValid = false;
             FitOnEyes = false;
+            participant = "";
+            savedAt = "";
         }
 
         public void CopyFrom(GazeCorrection other)
@@ -77,6 +85,8 @@ namespace Hemianopia.Gaze
             b0 = other.b0; b1 = other.b1; b2 = other.b2;
             IsValid = other.IsValid;
             FitOnEyes = other.FitOnEyes;
+            participant = other.participant;
+            savedAt = other.savedAt;
         }
 
         /// <summary>

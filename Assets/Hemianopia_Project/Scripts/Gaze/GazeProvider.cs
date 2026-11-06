@@ -6,6 +6,18 @@ using UnityEngine.InputSystem;
 
 namespace Hemianopia.Gaze
 {
+    /// <summary>What happened to time-matching on the latest sample, and why.</summary>
+    public enum TimeMatchStatus
+    {
+        NotEyes,           // mouse stand-in, nothing to match
+        Off,               // switched off
+        HeadsetHistory,    // matched with the head pose the headset gave for that moment
+        OwnHistory,        // matched with our own recorded head poses (headset gave none)
+        EstimatedLatency,  // eye clock unusable: matched using arrival time minus the assumed latency
+        ClockMismatch,     // the eye sample's age made no sense and estimating is switched off
+        NoHistory,         // no head pose for that moment from either source
+    }
+
     public enum GazeMode
     {
         Auto,        // Quest Pro eye tracking if available, otherwise the mouse
@@ -32,6 +44,13 @@ namespace Hemianopia.Gaze
     ///    any smoothing adds lag and lag lets people peek into the blind half after a saccade.
     ///    StableGazeRay goes through the FixationFilter (hold small wobble, snap on real jumps).
     ///    Use it for visuals like the debug dot, and later for deciding what the person actually looked at.
+    ///
+    /// 3. Eye samples CAN be time-matched to the head (latency fix, OFF by default).
+    ///    The head-motion test showed the real latency is small (about 5 to 20 ms) and the motion error is
+    ///    mostly a fixed lean, so this over-corrects at speed. Kept for experiments.
+    ///    Eye data arrives tens of milliseconds late, while head data is fresh. Pairing old eyes with the
+    ///    current head makes the gaze overshoot in the direction the head is turning. So each eye sample is
+    ///    re-paired with the head pose from the sample's own moment. Toggle with M or the right grip.
     /// </summary>
     [DefaultExecutionOrder(-100)]
     public class GazeProvider : MonoBehaviour
@@ -72,6 +91,19 @@ namespace Hemianopia.Gaze
         [Tooltip("Apply the per-person correction learned by the calibration check. Toggle with V or the right thumbstick click in Play mode.")]
         public bool applyCorrection = true;
 
+        [Header("Time-matching (latency fix)")]
+        [Tooltip("Pair each eye sample with the head pose from the moment it was taken, instead of the current head. Toggle with M or the right grip in Play mode.")]
+        public bool timeMatchGaze = false;
+
+        [Tooltip("An eye timestamp more than this many milliseconds from a known clock means it's on a different clock.")]
+        public float maxTimeMatchMs = 250f;
+
+        [Tooltip("When the eye timestamps are on an unknown clock (e.g. over Link), estimate each sample's moment as its arrival time minus this latency.")]
+        public bool estimateWhenClocksDiffer = true;
+
+        [Tooltip("Assumed delay from the eye being captured to the sample arriving, in ms. Start from the head-motion test (P01 measured about 80 ms), then tune it with the test: add the delay it still reports with time-matching on.")]
+        public float assumedLatencyMs = 80f;
+
         // ---------- Head-relative state (camera-local space) ----------
 
         /// <summary>Gaze origin in head (camera-local) space.</summary>
@@ -88,6 +120,29 @@ namespace Hemianopia.Gaze
         /// The calibration check reads this one, so it always measures the tracker's own error.
         /// </summary>
         public Vector3 TrackerDirectionHead { get; private set; } = Vector3.forward;
+
+        /// <summary>Gaze origin in head space straight from the tracker, before time-matching.</summary>
+        public Vector3 TrackerOriginHead { get; private set; }
+
+        /// <summary>Gaze direction in head space after the calibration correction, before time-matching.</summary>
+        public Vector3 CorrectedDirectionHead { get; private set; } = Vector3.forward;
+
+        /// <summary>How old the latest eye sample was when it was used, in milliseconds. 0 for the mouse.</summary>
+        public float SampleAgeMs { get; private set; }
+
+        /// <summary>True if the latest eye sample was time-matched to the head pose from its own moment.</summary>
+        public bool IsTimeMatched => TimeMatchState == TimeMatchStatus.HeadsetHistory
+                                     || TimeMatchState == TimeMatchStatus.OwnHistory
+                                     || TimeMatchState == TimeMatchStatus.EstimatedLatency;
+
+        /// <summary>What happened to time-matching on the latest sample, and why.</summary>
+        public TimeMatchStatus TimeMatchState { get; private set; } = TimeMatchStatus.NotEyes;
+
+        /// <summary>Which clock the eye timestamps turned out to be on: "head pose", "runtime", or "unknown".</summary>
+        public string EyeClock { get; private set; } = "unknown";
+
+        /// <summary>How far time-matching turned the gaze on the latest sample, in degrees.</summary>
+        public float TimeMatchShiftDeg { get; private set; }
 
         /// <summary>The per-person bias correction learned by the calibration check. See Docs/CALIBRATION.md.</summary>
         public GazeCorrection Correction { get; } = new GazeCorrection();
@@ -113,10 +168,10 @@ namespace Hemianopia.Gaze
         public Ray RawGazeRay => HeadToWorld(GazeOriginHead, GazeDirectionHead);
 
         /// <summary>
-        /// Gaze in world space straight from the tracker, with NO calibration correction.
-        /// Used to show where the tracker alone would put your gaze, next to the corrected dot.
+        /// Gaze in world space straight from the tracker: no calibration correction, no time-matching.
+        /// For comparisons and diagnostics only.
         /// </summary>
-        public Ray TrackerGazeRay => HeadToWorld(GazeOriginHead, TrackerDirectionHead);
+        public Ray TrackerGazeRay => HeadToWorld(TrackerOriginHead, TrackerDirectionHead);
 
         /// <summary>Stabilized gaze in world space. Updated once per frame right before rendering.</summary>
         public Ray StableGazeRay => new Ray(RawGazeRay.origin, _filter.StableDirection);
@@ -169,11 +224,21 @@ namespace Hemianopia.Gaze
             if (Instance == this) Instance = null;
         }
 
+        void Update()
+        {
+            if (TimeMatchTogglePressed())
+            {
+                timeMatchGaze = !timeMatchGaze;
+                Debug.Log($"[Gaze] Time-matching {(timeMatchGaze ? "ON" : "OFF")}");
+            }
+        }
+
         void LateUpdate()
         {
             if (!EnsureCamera()) return;
 
             // Sample here so gameplay scripts reading gaze in Update/LateUpdate get this frame's data.
+            RecordHeadPose();
             Sample();
             if (HasGaze) UpdateFixationPoint();
 
@@ -194,6 +259,7 @@ namespace Hemianopia.Gaze
             _lastRenderFrame = Time.frameCount;
 
             // Re-sample so the gaze matches the exact head pose this frame is drawn with.
+            RecordHeadPose();
             Sample();
 
             if (HasGaze)
@@ -219,10 +285,29 @@ namespace Hemianopia.Gaze
                 {
                     // The pose arrives in the headset's tracking space (relative to the play area origin).
                     // ToHeadSpacePose removes the head's pose, leaving "where the eyes point relative to the head".
-                    OVRPose headPose = _state.Pose.ToOVRPose().ToHeadSpacePose();
-                    GazeOriginHead = headPose.position;
-                    TrackerDirectionHead = headPose.orientation * Vector3.forward;
-                    GazeDirectionHead = Corrected(TrackerDirectionHead);
+                    OVRPose eyeInHead = _state.Pose.ToOVRPose().ToHeadSpacePose();
+                    TrackerOriginHead = eyeInHead.position;
+                    TrackerDirectionHead = eyeInHead.orientation * Vector3.forward;
+                    CorrectedDirectionHead = Corrected(TrackerDirectionHead);
+
+                    // Time-matching. The eye sample is older than the head pose it was just combined with,
+                    // so re-pair it with the head pose from the sample's own moment. In head space that means
+                    // turning it by how much the head has moved since then. See Docs/GAZE.md.
+                    Vector3 origin = TrackerOriginHead;
+                    Vector3 direction = CorrectedDirectionHead;
+                    TimeMatchShiftDeg = 0f;
+                    Quaternion motion = Quaternion.identity;
+                    Vector3 shift = Vector3.zero;
+                    TimeMatchState = timeMatchGaze ? TimeMatch(_state.Time, out motion, out shift) : TimeMatchStatus.Off;
+                    if (IsTimeMatched)
+                    {
+                        direction = motion * direction;
+                        origin = motion * origin + shift;
+                        TimeMatchShiftDeg = Vector3.Angle(CorrectedDirectionHead, direction);
+                    }
+                    ReportTimeMatchOnce();
+                    GazeOriginHead = origin;
+                    GazeDirectionHead = direction.normalized;
                     Timestamp = _state.Time;
                     HasGaze = true;
                 }
@@ -234,9 +319,14 @@ namespace Hemianopia.Gaze
                 if (TryGetMouseRay(out Ray worldRay))
                 {
                     Transform cam = viewCamera.transform;
-                    GazeOriginHead = cam.InverseTransformPoint(worldRay.origin);
+                    TrackerOriginHead = cam.InverseTransformPoint(worldRay.origin);
+                    GazeOriginHead = TrackerOriginHead;
                     TrackerDirectionHead = cam.InverseTransformDirection(worldRay.direction).normalized;
-                    GazeDirectionHead = Corrected(TrackerDirectionHead);
+                    CorrectedDirectionHead = Corrected(TrackerDirectionHead);
+                    GazeDirectionHead = CorrectedDirectionHead;
+                    TimeMatchState = TimeMatchStatus.NotEyes;
+                    SampleAgeMs = 0f;
+                    TimeMatchShiftDeg = 0f;
                     Timestamp = Time.timeAsDouble;
                     HasGaze = true;
                 }
@@ -263,6 +353,217 @@ namespace Hemianopia.Gaze
                 RawFixationDistance = noHitDistance;
                 RawFixationHit = false;
             }
+        }
+
+        /// <summary>
+        /// How the head has moved from time t until now, expressed in the CURRENT head's frame.
+        /// Applying it to a head-space gaze from time t re-describes that same gaze line from the current head.
+        ///   motion = inverse(head now) * (head then)
+        /// Returns false if the runtime can't give a head pose for that time.
+        /// </summary>
+        double _lastEyeTime = double.NaN;
+        double _eyeArrivalClock;
+
+        /// <summary>
+        /// Works out which clock the eye timestamp is on, then finds how the head moved since the sample.
+        ///   1. Same clock as the head poses: use the real timestamp.
+        ///   2. Same clock as the runtime: use the real timestamp.
+        ///   3. Neither (e.g. over Link): the sample's moment = when it ARRIVED here, minus assumedLatencyMs.
+        ///      A sample that sits around for extra frames correctly counts as older.
+        /// Also sets SampleAgeMs.
+        /// </summary>
+        TimeMatchStatus TimeMatch(double eyeTime, out Quaternion motion, out Vector3 shift)
+        {
+            motion = Quaternion.identity;
+            shift = Vector3.zero;
+
+            double clockNow = OVRPlugin.GetTimeInSeconds();
+            if (eyeTime != _lastEyeTime) // a new eye sample just arrived
+            {
+                _lastEyeTime = eyeTime;
+                _eyeArrivalClock = clockNow;
+            }
+
+            int newest = (_historyNext - 1 + HistorySize) % HistorySize;
+            double poseNow = _historyCount > 0 ? _historyPoseTime[newest] : 0.0;
+            double limit = maxTimeMatchMs / 1000.0;
+
+            if (poseNow > 0.0 && System.Math.Abs(poseNow - eyeTime) <= limit)
+            {
+                EyeClock = "head pose";
+                SampleAgeMs = (float)((poseNow - eyeTime) * 1000.0);
+                return TryHeadMotionSince(eyeTime, true, true, out motion, out shift, out bool fromHeadset)
+                    ? (fromHeadset ? TimeMatchStatus.HeadsetHistory : TimeMatchStatus.OwnHistory)
+                    : TimeMatchStatus.NoHistory;
+            }
+
+            if (System.Math.Abs(clockNow - eyeTime) <= limit)
+            {
+                EyeClock = "runtime";
+                SampleAgeMs = (float)((clockNow - eyeTime) * 1000.0);
+                return TryHeadMotionSince(eyeTime, true, false, out motion, out shift, out bool fromHeadset)
+                    ? (fromHeadset ? TimeMatchStatus.HeadsetHistory : TimeMatchStatus.OwnHistory)
+                    : TimeMatchStatus.NoHistory;
+            }
+
+            EyeClock = "unknown";
+            if (!estimateWhenClocksDiffer)
+            {
+                SampleAgeMs = (float)((clockNow - eyeTime) * 1000.0);
+                return TimeMatchStatus.ClockMismatch;
+            }
+
+            double age = (clockNow - _eyeArrivalClock) + assumedLatencyMs / 1000.0;
+            SampleAgeMs = (float)(age * 1000.0);
+            return TryHeadMotionSince(clockNow - age, false, false, out motion, out shift, out _)
+                ? TimeMatchStatus.EstimatedLatency
+                : TimeMatchStatus.NoHistory;
+        }
+
+        bool TryHeadMotionSince(double t, bool askHeadset, bool usePoseClock,
+                                out Quaternion rotation, out Vector3 translation, out bool fromHeadset)
+        {
+            rotation = Quaternion.identity;
+            translation = Vector3.zero;
+            fromHeadset = false;
+
+            Quaternion thenRotation = Quaternion.identity;
+            Vector3 thenPosition = Vector3.zero;
+            bool found = false;
+
+            // First choice: ask the headset where the head was at time t (only meaningful on its own clock).
+            if (askHeadset)
+            {
+                OVRPlugin.PoseStatef past = OVRPlugin.GetNodePoseStateAtTime(t, OVRPlugin.Node.Head);
+                if (!IsIdentity(past.Pose)) // the SDK returns identity when it has no answer
+                {
+                    OVRPose then = past.Pose.ToOVRPose();
+                    thenRotation = then.orientation;
+                    thenPosition = then.position;
+                    fromHeadset = true;
+                    found = true;
+                }
+            }
+
+            // Fallback: our own recorded head poses, blended between the two around time t.
+            if (!found && !TryHeadFromHistory(t, usePoseClock, out thenRotation, out thenPosition))
+            {
+                return false;
+            }
+
+            OVRPose now = OVRPlugin.GetNodePose(OVRPlugin.Node.Head, OVRPlugin.Step.Render).ToOVRPose();
+            Quaternion inverseNow = Quaternion.Inverse(now.orientation);
+            rotation = inverseNow * thenRotation;
+            translation = inverseNow * (thenPosition - now.position);
+            return true;
+        }
+
+        // ---------- Our own head-pose history (fallback for time-matching) ----------
+        // A ring buffer of the last ~1.5 s of head poses, each stamped with the headset's own clock,
+        // so an eye sample's timestamp can be looked up in it. Same idea as a TAA history buffer,
+        // but for head poses instead of pixels.
+
+        const int HistorySize = 128;
+        readonly double[] _historyPoseTime = new double[HistorySize];  // the pose's own time (0 if the SDK leaves it empty)
+        readonly double[] _historyClockTime = new double[HistorySize]; // GetTimeInSeconds() when it was recorded
+        readonly Quaternion[] _historyRotation = new Quaternion[HistorySize];
+        readonly Vector3[] _historyPosition = new Vector3[HistorySize];
+        int _historyCount;
+        int _historyNext;
+        double _historyLastTime = double.NegativeInfinity;
+
+        void RecordHeadPose()
+        {
+            OVRPlugin.PoseStatef state = OVRPlugin.GetNodePoseStateRaw(OVRPlugin.Node.Head, OVRPlugin.Step.Render);
+            if (IsIdentity(state.Pose)) return;
+
+            double clock = OVRPlugin.GetTimeInSeconds();
+            if (clock <= _historyLastTime) return; // nothing new since the last call
+
+            OVRPose pose = state.Pose.ToOVRPose();
+            _historyPoseTime[_historyNext] = state.Time;
+            _historyClockTime[_historyNext] = clock;
+            _historyRotation[_historyNext] = pose.orientation;
+            _historyPosition[_historyNext] = pose.position;
+            _historyNext = (_historyNext + 1) % HistorySize;
+            _historyCount = Mathf.Min(_historyCount + 1, HistorySize);
+            _historyLastTime = clock;
+        }
+
+        bool TryHeadFromHistory(double t, bool usePoseClock, out Quaternion rotation, out Vector3 position)
+        {
+            rotation = Quaternion.identity;
+            position = Vector3.zero;
+            if (_historyCount < 2) return false;
+            double[] times = usePoseClock ? _historyPoseTime : _historyClockTime;
+
+            int newest = (_historyNext - 1 + HistorySize) % HistorySize;
+            if (t >= times[newest])
+            {
+                // Newer than anything recorded: the latest pose is the best we have.
+                rotation = _historyRotation[newest];
+                position = _historyPosition[newest];
+                return true;
+            }
+
+            // Walk back in time until we find the two poses on either side of t, then blend.
+            for (int k = 1; k < _historyCount; k++)
+            {
+                int newer = (newest - k + 1 + HistorySize) % HistorySize;
+                int older = (newest - k + HistorySize) % HistorySize;
+                if (times[older] <= t)
+                {
+                    double span = times[newer] - times[older];
+                    float a = span > 0.0 ? (float)((t - times[older]) / span) : 1f;
+                    rotation = Quaternion.Slerp(_historyRotation[older], _historyRotation[newer], a);
+                    position = Vector3.Lerp(_historyPosition[older], _historyPosition[newer], a);
+                    return true;
+                }
+            }
+            return false; // older than everything we remember
+        }
+
+        bool _reportedTimeMatchProblem;
+        bool _reportedTimeMatchSource;
+
+        // One console line the first time each kind of outcome happens, with the numbers needed to debug it.
+        void ReportTimeMatchOnce()
+        {
+            switch (TimeMatchState)
+            {
+                case TimeMatchStatus.HeadsetHistory:
+                case TimeMatchStatus.OwnHistory:
+                case TimeMatchStatus.EstimatedLatency:
+                    if (_reportedTimeMatchSource) return;
+                    _reportedTimeMatchSource = true;
+                    string how = TimeMatchState == TimeMatchStatus.HeadsetHistory ? "the headset's head history"
+                               : TimeMatchState == TimeMatchStatus.OwnHistory ? "our own head history"
+                               : $"arrival time minus an assumed {assumedLatencyMs:0} ms (eye clock unknown)";
+                    Debug.Log($"[Gaze] Time-matching works, using {how}. Eye clock: {EyeClock}. Eye data about {SampleAgeMs:0} ms old.");
+                    break;
+                case TimeMatchStatus.ClockMismatch:
+                case TimeMatchStatus.NoHistory:
+                    if (_reportedTimeMatchProblem) return;
+                    _reportedTimeMatchProblem = true;
+                    int newest = (_historyNext - 1 + HistorySize) % HistorySize;
+                    Debug.LogWarning($"[Gaze] Time-matching can't run: {TimeMatchState}. Eye sample time {_state.Time:0.000} s, clock now {OVRPlugin.GetTimeInSeconds():0.000} s, age {SampleAgeMs:0} ms, " +
+                                     $"head history {_historyCount} poses, newest pose time {(_historyCount > 0 ? _historyPoseTime[newest] : 0.0):0.000} s.");
+                    break;
+            }
+        }
+
+        static bool IsIdentity(OVRPlugin.Posef p)
+        {
+            return p.Orientation.w == 1f && p.Orientation.x == 0f && p.Orientation.y == 0f && p.Orientation.z == 0f
+                   && p.Position.x == 0f && p.Position.y == 0f && p.Position.z == 0f;
+        }
+
+        static bool TimeMatchTogglePressed()
+        {
+#if ENABLE_INPUT_SYSTEM
+            if (Keyboard.current != null && Keyboard.current.mKey.wasPressedThisFrame) return true;
+#endif
+            return OVRInput.GetDown(OVRInput.RawButton.RHandTrigger, OVRInput.Controller.Touch);
         }
 
         Vector3 Corrected(Vector3 trackerDirectionHead)

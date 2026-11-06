@@ -101,6 +101,8 @@ which splits into two 3 × 3 systems (one per angle), solved directly. It needs 
 3. Press Play, put the headset on, press **C**, follow the dots.
 4. Read the result on the status panel in the headset, or the console line, for example: `P01 (eyes): 9/9 dots usable. Error 1.42° before, 0.51° after correction (same data, so optimistic). Noise 0.38° at center, 0.66° at the outer dots.`
 
+**It survives restarting Play.** After a good fit, the correction is saved to `CalibrationLogs/correction_<code>.json` and loaded automatically next time for the same participant code. The status panel says when it was saved. Re-run the check whenever the headset has been taken off or has shifted, since a saved correction can't know that. Turn `loadSavedCorrection` off on `CalibrationRunner` to start fresh every time.
+
 **Nothing in the console?** Check the three toggle icons at the top right of the Console window. The white speech-bubble one (normal messages) has to be on. Also clear the search box, and make sure the dropdown next to Error Pause says Editor.
 
 **Where the CSV goes:** `CalibrationLogs/` next to `Assets/` in the editor, the app's private storage on the headset. That folder is in `.gitignore`, because it's participant data and the repo is public.
