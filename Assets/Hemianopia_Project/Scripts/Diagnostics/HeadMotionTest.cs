@@ -112,6 +112,7 @@ namespace Hemianopia.Diagnostics
         {
             if (gaze == null || IsRunning) return;
             if (calibration != null && calibration.IsRunning) return;
+            if (SaccadeTest.AnyRunning) return;
             if (StartPressed()) StartCoroutine(Run());
         }
 

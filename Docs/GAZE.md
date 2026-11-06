@@ -80,7 +80,7 @@ Render
 
 ## 5. Latency and time-matching
 
-> **Verdict (Nov 5, P01, over Link): off by default.** Fast head turns showed the real latency is small, about 5 to 20 ms. The motion error is mostly a **fixed lean of about 2° toward the turn**, the same at any speed. Time-matching assumes a delay that grows with speed, so it over-corrected at fast turns. It stays in the code for experiments (M or the right grip). The story of how we got there is below and in [DEVLOG.md](DEVLOG.md).
+> **Verdict (Nov 5, P01, over Link): off by default.** Fast head turns showed the real latency is small, about 5 to 20 ms. The motion error is mostly a **fixed lean of about 2° toward the turn**, the same at any speed. Time-matching assumes a delay that grows with speed, so it over-corrected at fast turns. It stays in the code for experiments (M). The story of how we got there is below and in [DEVLOG.md](DEVLOG.md).
 
 **The problem.** World gaze = head pose + eye-in-head direction. Head data is close to instant. Eye data arrives tens of milliseconds late. The head-motion test measured about 80 ms of effective delay ([HEAD_MOTION_TEST.md](HEAD_MOTION_TEST.md)). When a stale eye sample is paired with the current head, the gaze overshoots in the direction the head is turning, by about head speed × delay.
 
@@ -124,7 +124,7 @@ The estimate gets tuned with the head-motion test: with time-matching on, whatev
 | ON (estimated, assumes 80 ms) | Eye clock unknown, matched using arrival time minus the assumed latency |
 | can't run: eye clock doesn't match | Eye clock unknown and estimating is switched off (`estimateWhenClocksDiffer`) |
 | can't run: no head pose for that moment | Neither source had a pose for that time |
-| OFF | Switched off (M or right grip) |
+| OFF | Switched off (M) |
 
 The first time it can't run, the console prints the eye sample time, the clock, the age, and the history state, which is everything needed to debug it.
 
@@ -142,7 +142,7 @@ The first time it can't run, the console prints the eye sample time, the clock, 
 
 **What it can't fix:** the moment the eyes jump to something new. Nothing knows where they landed until the sample arrives.
 
-Toggle with **M** or the **right grip**. Setting: `timeMatchGaze` on `GazeProvider`. Samples older than `maxTimeMatchMs` (250 ms) are left alone, in case the clocks disagree.
+Toggle with **M**. Setting: `timeMatchGaze` on `GazeProvider`. Samples older than `maxTimeMatchMs` (250 ms) are left alone, in case the clocks disagree.
 
 ## 6. The fixation point (where in 3D)
 

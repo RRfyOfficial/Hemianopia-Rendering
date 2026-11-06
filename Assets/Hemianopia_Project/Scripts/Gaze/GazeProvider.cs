@@ -47,10 +47,10 @@ namespace Hemianopia.Gaze
     ///
     /// 3. Eye samples CAN be time-matched to the head (latency fix, OFF by default).
     ///    The head-motion test showed the real latency is small (about 5 to 20 ms) and the motion error is
-    ///    mostly a fixed lean, so this over-corrects at speed. Kept for experiments.
+    ///    mostly a fixed lean, so this over-corrects at speed. Kept for experiments. Toggle with M.
     ///    Eye data arrives tens of milliseconds late, while head data is fresh. Pairing old eyes with the
     ///    current head makes the gaze overshoot in the direction the head is turning. So each eye sample is
-    ///    re-paired with the head pose from the sample's own moment. Toggle with M or the right grip.
+    ///    re-paired with the head pose from the sample's own moment. Toggle with M.
     /// </summary>
     [DefaultExecutionOrder(-100)]
     public class GazeProvider : MonoBehaviour
@@ -92,7 +92,7 @@ namespace Hemianopia.Gaze
         public bool applyCorrection = true;
 
         [Header("Time-matching (latency fix)")]
-        [Tooltip("Pair each eye sample with the head pose from the moment it was taken, instead of the current head. Toggle with M or the right grip in Play mode.")]
+        [Tooltip("Pair each eye sample with the head pose from the moment it was taken, instead of the current head. Toggle with M in Play mode.")]
         public bool timeMatchGaze = false;
 
         [Tooltip("An eye timestamp more than this many milliseconds from a known clock means it's on a different clock.")]
@@ -563,7 +563,7 @@ namespace Hemianopia.Gaze
 #if ENABLE_INPUT_SYSTEM
             if (Keyboard.current != null && Keyboard.current.mKey.wasPressedThisFrame) return true;
 #endif
-            return OVRInput.GetDown(OVRInput.RawButton.RHandTrigger, OVRInput.Controller.Touch);
+            return false; // keyboard only: the right grip now starts the saccade test
         }
 
         Vector3 Corrected(Vector3 trackerDirectionHead)

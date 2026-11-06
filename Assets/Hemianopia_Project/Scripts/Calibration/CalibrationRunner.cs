@@ -110,7 +110,7 @@ namespace Hemianopia.Calibration
             if (CalibratePressed())
             {
                 if (IsRunning) _closeResults = true;
-                else if (!HeadMotionTest.AnyRunning) StartCoroutine(Run());
+                else if (!HeadMotionTest.AnyRunning && !SaccadeTest.AnyRunning) StartCoroutine(Run());
             }
 
             if (ToggleCorrectionPressed())

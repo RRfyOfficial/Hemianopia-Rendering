@@ -88,6 +88,33 @@ Newest first. Each entry says what changed and why.
 - **Changes:** time-matching is now off by default (kept for experiments). The head-motion test now fits a fixed lean and a delay together, and its reading says which one it sees, and warns when the fast phase is too slow.
 - **Open question:** is the 2° lean the headset slipping on the face, or the eyes really slipping with the head? Cheap test: tighten the strap and rerun. If the lean shrinks, it's the headset. A good question for Tamanna too: do healthy eyes slip a little during head turns while fixating?
 
+### Strap test and sawtooth check
+
+- **Strap test (glances over 10° removed):** fixed lean +1.5° with the normal strap, +1.9° with a tight strap (per-run ranges overlap: 0.8 to 1.9° vs 1.6 to 2.6°). Tightening didn't shrink it, so it's probably **not the headset sliding**. Delay again small, 4 to 12 ms.
+- **Sawtooth check** on 12 fast runs, looking at the frame-by-frame error for the fingerprint of eyes slipping (slow creep toward the turn, quick snaps back):
+    - **Slow turns (20 to 60 °/s):** a weak sawtooth. Snaps back were about 2× as common as jumps forward (4.1 vs 2.2 per second), and the error crept toward the turn between them. Consistent with eyes slipping.
+    - **Fast turns (60 °/s and up):** unreadable. The head moves 3 to 8° between eye samples (about 50 per second), so timing jitter swamps the signal.
+    - **Head reversals (85 clean ones):** the error takes about 100 ms to flip to the new direction (crosses zero at about +75 to +100 ms, settled by +125 ms). Not instant, so it's **not a flat offset that flips the moment the head reverses**.
+- **Where that leaves it:** two explanations still fit. (1) The eyes slip with the head and catch up with small jumps. (2) The headset smooths its own gaze output, more when the eyes move slowly, which would also give a roughly constant lean and a ~100 ms flip. 50 Hz eye data can't separate them during head motion.
+- **Next test to separate them (and it matters for the simulation itself):** a saccade test with the head still. A dot jumps, and we measure how long the tracker takes to land on it. Real eyes finish a 20° jump in roughly 60 to 70 ms. If the tracker takes much longer, it's smoothing, and the hemianopia boundary would lag right after every eye jump, which is exactly when people could peek.
+
+### Saccade test
+
+- **Added `SaccadeTest`:** head still, a head-locked dot jumps 20° at random moments (16 jumps), you follow it. Per jump: rise time (10 to 90%), peak speed, overshoot, reaction. Timed with the eye samples' own timestamps, whose gaps are real even though their clock's starting point is unknown over Link. J or the right grip starts it. Details in [SACCADE_TEST.md](SACCADE_TEST.md).
+- **Controls:** the right grip moved from time-matching (now keyboard M only, it's off by default) to the saccade test. Calibration, the head-motion test and the saccade test refuse to start on top of each other.
+
+### Saccade results: the headset snaps
+
+- **4 runs, 60 usable jumps:** rise 14 to 28 ms, peak 720 to 1,240 °/s, no overshoot. Faster than real eyes can move.
+- **Traces are steps:** the biggest single-sample step was a median 97% of the jump, and 37 of 60 jumps had no sample mid-movement. Between jumps the reading barely moves (median 0.01° per sample, sometimes frozen for up to ~200 ms).
+- **Conclusion:** the headset runs its own hold-or-snap filter on gaze. It holds steady during fixations and jumps on saccades.
+- **That explains the head-motion lean** better than the eyes slipping: during a head turn the eyes counter-rotate smoothly, but the headset holds the eye reading until the change passes its threshold, then snaps. Bounded lean (~2°) at any speed, creep-then-snap, ~100 ms flip at reversals. It's probably also the "hops" in the boundary felt since day one.
+- **The test's automatic reading was wrong** ("more likely your eyes"). It assumed fast = unfiltered. Fixed: it now checks how much of each jump happens in a single step.
+- **What it means for us:**
+    - Good news for saccades: the boundary lands within about one sample (17 ms) after an eye jump, so no peek window from tracker smoothing.
+    - Don't stack heavy smoothing on top. The headset already smooths.
+    - The head-motion lean can likely be cancelled by holding gaze in WORLD space during fixations (our existing world-space fixation filter), snapping only on real jumps. During a fixation the eyes stay on the same world point, so world-space holding costs no lag there.
+
 ## 2026-11-04
 
 ### Filter v0.1: each eye's boundary goes through the fixation point
@@ -151,8 +178,7 @@ The Project Setup Tool's Fix All turns some of these back on. Fix items one at a
 ## Next
 
 - **Run the calibration check on Tamanna** too, and compare with P01.
-- **Strap test:** tighten the headset strap and rerun the head-motion test, to see if the 2° lean is the headset slipping.
-- **Smart smoothing**, tuned from the measured noise (about 0.3° still, 2 to 4° spread while moving).
+- **World-space hold for the filter:** feed the hemianopia filter a world-space hold-or-snap gaze, to cancel the headset's head-motion lean. Measure it with the head-motion test.
 - **Native build vs Link:** less urgent now that latency looks small, but still worth one comparison.
 - **Add a validation run** (a second pass with the correction on) for an honest after-correction error.
 - **Smart smoothing on the filter**, tuned from the noise numbers.

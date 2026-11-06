@@ -72,7 +72,7 @@ The CSV (`CalibrationLogs/headmotion_<code>_<time>.csv`, never committed) has on
 ## 4. How to use it
 
 - **Run it once over Link and once as a native build on the headset.** If the delay drops a lot in the native build, Link is a big part of the jitter.
-- **Run it with time-matching on and off** (M or the right grip). This is the A/B test for the latency fix in [GAZE.md](GAZE.md), section 5. Off should show the ~80 ms delay. On should pull it toward 0. Negative means it over-corrects.
+- **Run it with time-matching on and off** (M). This is the A/B test for the latency fix in [GAZE.md](GAZE.md), section 5. Off should show the ~80 ms delay. On should pull it toward 0. Negative means it over-corrects.
 - **Run it with the correction on and off** (V) to check the correction doesn't hurt during motion.
 - **Turn properly fast in the fast phase**, like a quick "no" headshake. The first runs never went past about 60 °/s.
 - **Compare against the calibration noise** (about 0.3° for P01). If the error while moving is much bigger and follows the line, latency is the thing the smart smoothing has to deal with.

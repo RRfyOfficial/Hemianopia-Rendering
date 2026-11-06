@@ -62,7 +62,8 @@ Connect the headset over Link and press Play in Unity. The dot turns green and f
 | Calibration correction on or off | V | Right thumbstick click |
 | Status panel in the headset on or off | I | Left menu button |
 | Run the head-motion test | T | Left grip |
-| Time-matching (latency fix) on or off | M | Right grip |
+| Time-matching (experimental, off by default) on or off | M | |
+| Run the saccade test | J | Right grip |
 
 ## Project layout
 
@@ -74,7 +75,7 @@ Assets/
     Scripts/Rendering/   layer 3: HemianopiaController
     Scripts/Calibration/ Step 1: CalibrationRunner
     Scripts/UI/          StatusHud (the in-headset status panel)
-    Scripts/Diagnostics/ HeadMotionTest (latency vs noise)
+    Scripts/Diagnostics/ HeadMotionTest (lean vs latency), SaccadeTest (how fast the tracker follows eye jumps)
     Shaders/             layer 3: HemianopiaFilter.shader
     Materials/
   URPDefaultResources/   URP pipeline assets ("Medium" is the one in use everywhere)
@@ -96,5 +97,6 @@ CalibrationLogs/         calibration and test results (local only, never committ
 - [`Docs/GAZE.md`](Docs/GAZE.md): how the gaze system works, with the math
 - [`Docs/FILTER.md`](Docs/FILTER.md): how the hemianopia filter works, with the math and the Unity setup
 - [`Docs/CALIBRATION.md`](Docs/CALIBRATION.md): the calibration check, bias vs noise, with the math
-- [`Docs/HEAD_MOTION_TEST.md`](Docs/HEAD_MOTION_TEST.md): measuring latency vs noise while the head moves
+- [`Docs/HEAD_MOTION_TEST.md`](Docs/HEAD_MOTION_TEST.md): measuring a fixed lean vs latency while the head moves
+- [`Docs/SACCADE_TEST.md`](Docs/SACCADE_TEST.md): how fast the tracker follows a real eye jump
 - [`Docs/DEVLOG.md`](Docs/DEVLOG.md): what we did, when, and why
