@@ -172,6 +172,8 @@ The anchor is a **3D point**, not a direction, so it stays right when the head m
 
 **First A/B (v1, before the head-still and safety-net tweaks):** fast-turn error 5.4° to 3.3°, lean +2.1° to +1.2°, but still-head error 0.65° to 1.64°, because the anchor ignored small corrections under 1.5°. The tweaks above target both.
 
+**Clean A/B with the tweaks (v2, time-matching OFF):** still-head error unchanged (0.23° vs 0.25°), turn error 15 to 35% lower (for example 2.72° to 1.83° at 40 to 120 °/s, 4.47° to 3.86° above 120 °/s), and the fixed lean down from +1.71° to +1.00°. About 1° of lean is left. On by default.
+
 **Trade-offs:**
 - Real eye movements under 1.5° that the headset doesn't snap on are ignored. That's below the tracker's own accuracy anyway.
 - Slow, smooth eye movements (following something moving) only update through the safety net, so the boundary can trail them by up to 5°. Worth revisiting once the test kitchen has moving objects.

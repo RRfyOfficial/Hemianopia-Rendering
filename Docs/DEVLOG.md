@@ -133,6 +133,32 @@ Newest first. Each entry says what changed and why.
 - **Works where it was meant to** (about 40% less error in fast turns, lean down about 40%), but **costs about 1° with the head still**: the anchor ignored corrective eye movements under 1.5°.
 - **Leftover lean:** at fast speeds the creep passes the 5° safety net within 150 ms, so the safety net re-anchored mid-creep and locked part of the lean in.
 - **Tweaks (v2):** anchoring only holds while the head turns (over 8 °/s, plus 0.1 s after), and follows the raw gaze when the head is still. The safety net only applies while the head turns slower than 30 °/s. The status panel shows holding vs following and the head speed.
+- **v2 A/B (Nov 6, time-matching accidentally ON in all runs, glances removed):**
+
+| | Anchoring OFF (2 runs) | Anchoring ON (3 runs) |
+|---|---|---|
+| Error, head still | 0.73° | 0.64° |
+| Fixed lean toward the turn | +1.35° | **+0.23°** |
+| Error, 5 to 40 °/s | 1.68° | 1.54° |
+| Error, 40 to 120 °/s | 3.20° | 3.48° |
+| Error, 120 °/s and up | 6.57° | 6.59° |
+
+- **The still-head cost is gone** (1.64° in v1, 0.64° now) and **the fixed lean is nearly gone** (+0.23°).
+- **Fast turns didn't improve, but that's time-matching, not anchoring.** It was ON (assumes 80 ms, real latency is about 5 to 10 ms), so it over-corrected by about 30 ms in both conditions (delay −24 to −34 ms). At 150 °/s that alone is about 5° of error, which swamps the fast phase. Needs a clean rerun with time-matching OFF.
+- **Clean v2 A/B (Nov 6, time-matching OFF, 2 runs each, glances removed):**
+
+| | Anchoring OFF | Anchoring ON |
+|---|---|---|
+| Error, head still | 0.23° | 0.25° |
+| Error, 5 to 40 °/s | 2.37° | 1.86° |
+| Error, 40 to 120 °/s | 2.72° | 1.83° |
+| Error, 120 °/s and up | 4.47° | 3.86° |
+| Fixed lean (fit) | +1.71° | +1.00° |
+| Delay (fit) | +11 ms | +9 ms |
+
+- **Verdict:** v2 is a safe, across-the-board improvement. No cost with the head still, 15 to 35% less error during turns, and the fixed lean down about 40%. It doesn't cancel the lean completely: about 1° is left (more at fast speeds).
+- **Possible reasons for the leftover:** catch-up snaps during fast turns landing more than 1.5° from the anchor (which re-anchors at a leaning spot), or some real eye lag (healthy eyes don't counter-rotate perfectly at high speeds).
+- **Decision for now:** keep v2 on by default. Further tuning has diminishing returns compared with the rest of Step 1 and the test kitchen.
 
 ## 2026-11-04
 
