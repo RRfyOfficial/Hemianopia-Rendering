@@ -2,6 +2,35 @@
 
 Newest first. Each entry says what changed and why.
 
+## 2026-11-05
+
+### Check-in with Prof. Zwicker
+
+- Showed him the filter. He traced the jitter to the tracker's own estimation errors plus the delay between the eye tracker and Unity, and suggested temporal smoothing in the filter.
+- **Our framing:** two kinds of error. Bias (a consistent offset) is fixed by calibration. Noise (random wobble) is fixed by smoothing.
+- **Plan:** calibration first, because its noise numbers tell the smoothing how strong to be. Then smart smoothing on the filter: calm while the eyes hold still, instant when they jump, so it never lets anyone peek.
+- Also planned: compare a native headset build with Link, to see how much of the jitter is Link's delay.
+
+### Calibration check v1 (Step 1)
+
+- **Added `CalibrationRunner`:** 9 head-locked dots, records fresh gaze samples per dot, drops glances away, measures bias (accuracy) and noise (precision), shows a results picture, saves a CSV to `CalibrationLogs/`. C or left thumbstick click runs it.
+- **Added `GazeCorrection`:** an affine correction in (azimuth, elevation) degrees, fitted by least squares, with sanity limits. V or right thumbstick click toggles it.
+- **`GazeProvider`** now keeps `TrackerDirectionHead` (before correction) and `GazeDirectionHead` (after). Everything downstream uses the corrected one.
+- **`GazeDot`** now hides itself when disabled, so it can switch off during calibration.
+- **`.gitignore`:** `CalibrationLogs/` and `Replays/` are never committed.
+- Details in [CALIBRATION.md](CALIBRATION.md). Not yet tested on the headset.
+
+### First calibration results, status panel, ghost dot
+
+- **First runs (P01, 4 runs, the first one discarded as a warm-up with 8 of 9 dots):**
+    - Error before correction about 1.2°. After correction 0.3 to 0.6°, measured on the same data, so optimistic.
+    - Noise about 0.3 to 0.4°, a bit higher at the outer dots than the center.
+    - Consistent bias across runs: the tracker reads gaze slightly low (0.5 to 0.8° on average, up to 2° at the bottom dots), stretches vertical angles by about 5%, and squeezes horizontal ones by about 2 to 3%.
+- **What that suggests (not confirmed):** with the head still, noise is small, about a quarter of the bias and far under the fixation filter's 2° snap threshold. So the shimmer seen during head movement likely comes mostly from latency, as Prof. Zwicker suggested, since these dots moved with the head and never tested head motion.
+- **Problem:** no way to see in the headset whether the correction was on, and the console showed nothing. The console's normal-message filter was most likely off. The results were all saved to CSV.
+- **Added `StatusHud`:** a head-locked panel under the view with gaze source, correction ON/OFF, last calibration numbers and filter state. Changes flash in big text. I or the left menu button toggles it.
+- **Added the ghost dot to `GazeDot`:** while the correction is on, a small red dot shows where the tracker alone would put your gaze.
+
 ## 2026-11-04
 
 ### Filter v0.1: each eye's boundary goes through the fixation point
@@ -64,6 +93,9 @@ The Project Setup Tool's Fix All turns some of these back on. Fix items one at a
 
 ## Next
 
-- **Test filter v0.1 on the Quest Pro:** with a cube at arm's length, the edge should run through the gaze dot in each eye.
-- **Measure the shimmer:** log gaze and head motion so we can look at real numbers before choosing a fix.
+- **Run the calibration check on Tamanna** too, and compare with P01.
+- **Measure gaze during head movement**, since the calibration dots move with the head and never test it.
+- **Add a validation run** (a second pass with the correction on) for an honest after-correction error.
+- **Smart smoothing on the filter**, tuned from the noise numbers.
+- **Native build vs Link** comparison for latency.
 - **Filter v1 with Tamanna:** what the blind half should look like, edge softness, macular sparing.

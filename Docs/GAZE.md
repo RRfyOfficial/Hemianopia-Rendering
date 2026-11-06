@@ -74,6 +74,10 @@ Render
 
 **Rule:** the hemianopia filter must use raw gaze. Smoothing adds lag. If the blind half lags behind a saccade, the person gets a split second to see into the area that's supposed to be gone, and the simulation is broken.
 
+### Calibration correction
+
+`GazeProvider` keeps the tracker's own reading as `TrackerDirectionHead`, and the bias-corrected one as `GazeDirectionHead`. Everything downstream uses the corrected one, including `RawGazeRay`, where "raw" means unsmoothed. The calibration check reads the tracker's own reading so it always measures the tracker's real error. Details in [CALIBRATION.md](CALIBRATION.md).
+
 ## 5. The fixation point (where in 3D)
 
 A direction says *which way* you're looking. The hemianopia filter also needs *where*: the 3D spot both eyes are pointed at, because each eye's boundary has to pass through it (see [FILTER.md](FILTER.md), section 2).

@@ -12,7 +12,7 @@ Six layers, each with one job, so any one of them can be rebuilt without breakin
 
 | Layer | Job | Status |
 |---|---|---|
-| 1. Gaze source | Where is the person looking? Quest Pro eye tracking, or the mouse as a stand-in | Done (v1) |
+| 1. Gaze source | Where is the person looking? Quest Pro eye tracking, or the mouse as a stand-in | Done (v1), calibration check added |
 | 2. Scene render | Standard URP, untouched | Done |
 | 3. Hemianopia filter | Image-space pass that hides one half of the visual field, locked to gaze | v0 in progress |
 | 4. Blind-field tracker | What's on the blind side, and when it was last seen | Planned |
@@ -58,6 +58,9 @@ Connect the headset over Link and press Play in Unity. The dot turns green and f
 | Toggle the hemianopia filter | H | A, B, X or Y |
 | Flip the blind side | B | Either index trigger |
 | Gaze dot: stable vs raw | R | |
+| Run the calibration check | C | Left thumbstick click |
+| Calibration correction on or off | V | Right thumbstick click |
+| Status panel in the headset on or off | I | Left menu button |
 
 ## Project layout
 
@@ -67,11 +70,14 @@ Assets/
     Scenes/              Sim.unity is the main scene
     Scripts/Gaze/        layer 1: GazeProvider, FixationFilter, GazeDot
     Scripts/Rendering/   layer 3: HemianopiaController
+    Scripts/Calibration/ Step 1: CalibrationRunner
+    Scripts/UI/          StatusHud (the in-headset status panel)
     Shaders/             layer 3: HemianopiaFilter.shader
     Materials/
   URPDefaultResources/   URP pipeline assets ("Medium" is the one in use everywhere)
   XR/, Oculus/           XR and Meta settings, managed by Unity and the Meta SDK
 Docs/                    design notes and the dev log (Unity ignores this folder)
+CalibrationLogs/         calibration results (local only, never committed)
 ```
 
 ## Ground rules
@@ -80,9 +86,11 @@ Docs/                    design notes and the dev log (Unity ignores this folder
 - **One person per scene at a time.** Unity scene files merge badly. Say so before editing `Sim`, or work in your own scene.
 - **All our files go in `Assets/Hemianopia_Project/`.**
 - **Commit small and often,** with messages that say what changed and why.
+- **Never commit recordings.** `CalibrationLogs/` and `Replays/` are participant data and stay local. They're already in `.gitignore`.
 
 ## Docs
 
 - [`Docs/GAZE.md`](Docs/GAZE.md): how the gaze system works, with the math
 - [`Docs/FILTER.md`](Docs/FILTER.md): how the hemianopia filter works, with the math and the Unity setup
+- [`Docs/CALIBRATION.md`](Docs/CALIBRATION.md): the calibration check, bias vs noise, with the math
 - [`Docs/DEVLOG.md`](Docs/DEVLOG.md): what we did, when, and why

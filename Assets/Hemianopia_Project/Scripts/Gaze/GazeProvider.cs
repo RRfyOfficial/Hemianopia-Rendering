@@ -68,13 +68,32 @@ namespace Hemianopia.Gaze
         [Tooltip("Which layers count as things you can look at.")]
         public LayerMask fixationLayers = ~0;
 
+        [Header("Calibration (bias correction)")]
+        [Tooltip("Apply the per-person correction learned by the calibration check. Toggle with V or the right thumbstick click in Play mode.")]
+        public bool applyCorrection = true;
+
         // ---------- Head-relative state (camera-local space) ----------
 
         /// <summary>Gaze origin in head (camera-local) space.</summary>
         public Vector3 GazeOriginHead { get; private set; }
 
-        /// <summary>Gaze direction in head (camera-local) space. +Z is straight ahead.</summary>
+        /// <summary>
+        /// Gaze direction in head (camera-local) space, after the calibration correction when one is active.
+        /// +Z is straight ahead. This is what everything downstream uses.
+        /// </summary>
         public Vector3 GazeDirectionHead { get; private set; } = Vector3.forward;
+
+        /// <summary>
+        /// Gaze direction straight from the tracker (or the mouse), BEFORE the calibration correction.
+        /// The calibration check reads this one, so it always measures the tracker's own error.
+        /// </summary>
+        public Vector3 TrackerDirectionHead { get; private set; } = Vector3.forward;
+
+        /// <summary>The per-person bias correction learned by the calibration check. See Docs/CALIBRATION.md.</summary>
+        public GazeCorrection Correction { get; } = new GazeCorrection();
+
+        /// <summary>True when the correction is actually being applied to the current gaze source.</summary>
+        public bool IsCorrectionActive => applyCorrection && Correction.IsValid && Correction.FitOnEyes == IsEyeTracking;
 
         /// <summary>True once we've received at least one gaze sample.</summary>
         public bool HasGaze { get; private set; }
@@ -88,10 +107,16 @@ namespace Hemianopia.Gaze
         // ---------- World-space views ----------
 
         /// <summary>
-        /// Unfiltered gaze in world space, built from the camera's pose at the moment you read it.
-        /// This is the one the hemianopia filter uses.
+        /// Unfiltered gaze (no smoothing) in world space, built from the camera's pose at the moment you read it.
+        /// Bias-corrected when a calibration is active. This is the one the hemianopia filter uses.
         /// </summary>
         public Ray RawGazeRay => HeadToWorld(GazeOriginHead, GazeDirectionHead);
+
+        /// <summary>
+        /// Gaze in world space straight from the tracker, with NO calibration correction.
+        /// Used to show where the tracker alone would put your gaze, next to the corrected dot.
+        /// </summary>
+        public Ray TrackerGazeRay => HeadToWorld(GazeOriginHead, TrackerDirectionHead);
 
         /// <summary>Stabilized gaze in world space. Updated once per frame right before rendering.</summary>
         public Ray StableGazeRay => new Ray(RawGazeRay.origin, _filter.StableDirection);
@@ -189,30 +214,32 @@ namespace Hemianopia.Gaze
 
             if (eyesAvailable)
             {
+                SetSource(true); // first, so the correction check below knows the current source
                 if (OVRPlugin.GetEyeGazeInteractionState(OVRPlugin.Step.Render, -1, ref _state) && _state.IsValid)
                 {
                     // The pose arrives in the headset's tracking space (relative to the play area origin).
                     // ToHeadSpacePose removes the head's pose, leaving "where the eyes point relative to the head".
                     OVRPose headPose = _state.Pose.ToOVRPose().ToHeadSpacePose();
                     GazeOriginHead = headPose.position;
-                    GazeDirectionHead = headPose.orientation * Vector3.forward;
+                    TrackerDirectionHead = headPose.orientation * Vector3.forward;
+                    GazeDirectionHead = Corrected(TrackerDirectionHead);
                     Timestamp = _state.Time;
                     HasGaze = true;
                 }
                 // If this sample is invalid (a blink, a dropped frame) we keep the last gaze on purpose.
-                SetSource(true);
             }
             else if (mode != GazeMode.EyeTracking)
             {
+                SetSource(false);
                 if (TryGetMouseRay(out Ray worldRay))
                 {
                     Transform cam = viewCamera.transform;
                     GazeOriginHead = cam.InverseTransformPoint(worldRay.origin);
-                    GazeDirectionHead = cam.InverseTransformDirection(worldRay.direction).normalized;
+                    TrackerDirectionHead = cam.InverseTransformDirection(worldRay.direction).normalized;
+                    GazeDirectionHead = Corrected(TrackerDirectionHead);
                     Timestamp = Time.timeAsDouble;
                     HasGaze = true;
                 }
-                SetSource(false);
             }
         }
 
@@ -236,6 +263,11 @@ namespace Hemianopia.Gaze
                 RawFixationDistance = noHitDistance;
                 RawFixationHit = false;
             }
+        }
+
+        Vector3 Corrected(Vector3 trackerDirectionHead)
+        {
+            return IsCorrectionActive ? Correction.ApplyDirection(trackerDirectionHead) : trackerDirectionHead;
         }
 
         Ray HeadToWorld(Vector3 originHead, Vector3 directionHead)

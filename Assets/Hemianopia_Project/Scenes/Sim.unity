@@ -720,6 +720,7 @@ GameObject:
   - component: {fileID: 1211825480}
   - component: {fileID: 1211825479}
   - component: {fileID: 1211825482}
+  - component: {fileID: 1211825483}
   m_Layer: 0
   m_Name: Gaze
   m_TagString: Untagged
@@ -766,6 +767,7 @@ MonoBehaviour:
   fixationLayers:
     serializedVersion: 2
     m_Bits: 4294967295
+  applyCorrection: 1
 --- !u!4 &1211825481
 Transform:
   m_ObjectHideFlags: 0
@@ -796,6 +798,32 @@ MonoBehaviour:
   filterEnabled: 1
   blindSide: 0
   blindColor: {r: 0, g: 0, b: 0, a: 1}
+--- !u!114 &1211825483
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1211825478}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: d63388e63c86ba446aba91482d5bcda4, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::Hemianopia.Calibration.CalibrationRunner
+  participantCode: P01
+  horizontalExtentDegrees: 20
+  verticalExtentDegrees: 12
+  dotDistance: 2
+  settleSeconds: 0.6
+  recordSeconds: 1
+  minSamplesPerDot: 15
+  glanceAwayDegrees: 5
+  minDotsForFit: 6
+  dotSizeDegrees: 0.6
+  resultsSeconds: 12
+  gaze: {fileID: 0}
+  hemianopia: {fileID: 0}
+  gazeDot: {fileID: 0}
 --- !u!1001 &1245328768
 PrefabInstance:
   m_ObjectHideFlags: 0
