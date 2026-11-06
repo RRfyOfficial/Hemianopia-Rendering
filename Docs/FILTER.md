@@ -23,7 +23,7 @@ $$\mathbf{P}_{\text{world}} = (VP)^{-1}\,\mathbf{p}_{\text{clip}}, \qquad \hat{\
 
 where $\mathbf{p}_{\text{clip}}$ is the pixel on the near plane and $\mathbf{c}_e$ is the position of the eye being rendered. In code: `ComputeWorldSpacePosition(uv, UNITY_NEAR_CLIP_VALUE, UNITY_MATRIX_I_VP)`.
 
-**Step 2: where the eyes are looking, in 3D.** `GazeProvider` casts the raw gaze ray into the scene. The point it hits is the fixation point $\mathbf{F}$. In real life both eyes angle inward to point at it (vergence).
+**Step 2: where the eyes are looking, in 3D.** `GazeProvider` casts the raw gaze ray into the scene. The point it hits is the fixation point $\mathbf{F}$. In real life both eyes angle inward to point at it (vergence). With fixation anchoring on (the default), the filter uses `FilterFixationPoint`: the same point, but pinned in the world during a fixation to cancel the headset's head-turn lean ([GAZE.md](GAZE.md), section 6).
 
 **Step 3: each eye's own line of sight.** For the eye being rendered:
 

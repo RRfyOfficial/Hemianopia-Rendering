@@ -48,6 +48,12 @@ namespace Hemianopia.Gaze
     /// 3. Eye samples CAN be time-matched to the head (latency fix, OFF by default).
     ///    The head-motion test showed the real latency is small (about 5 to 20 ms) and the motion error is
     ///    mostly a fixed lean, so this over-corrects at speed. Kept for experiments. Toggle with M.
+    ///
+    /// 4. Fixations are ANCHORED in the world (on by default, eye tracking only).
+    ///    The headset holds its eye reading during a fixation and snaps when something changes. While the head
+    ///    turns, that hold makes the gaze creep toward the turn (the ~2° lean). So the hemianopia filter gets a
+    ///    gaze pinned to a point in the world, re-anchored only when a headset snap lands somewhere new.
+    ///    Toggle with K. See Docs/GAZE.md.
     ///    Eye data arrives tens of milliseconds late, while head data is fresh. Pairing old eyes with the
     ///    current head makes the gaze overshoot in the direction the head is turning. So each eye sample is
     ///    re-paired with the head pose from the sample's own moment. Toggle with M.
@@ -90,6 +96,31 @@ namespace Hemianopia.Gaze
         [Header("Calibration (bias correction)")]
         [Tooltip("Apply the per-person correction learned by the calibration check. Toggle with V or the right thumbstick click in Play mode.")]
         public bool applyCorrection = true;
+
+        [Header("Fixation anchoring (cancels the headset's head-turn lean)")]
+        [Tooltip("Pin the filter's gaze to a world point during fixations, moving it only when the headset's reading snaps somewhere new. Toggle with K in Play mode.")]
+        public bool anchorFixations = true;
+
+        [Tooltip("An eye reading change this big between two frames counts as a headset snap, in degrees.")]
+        public float snapDetectDegrees = 0.5f;
+
+        [Tooltip("After a snap, the gaze has to land at least this far from the anchor to count as a new fixation, in degrees.")]
+        public float reanchorDegrees = 1.5f;
+
+        [Tooltip("Safety net: re-anchor if the gaze stays this far from the anchor without any snap, in degrees...")]
+        public float failsafeDegrees = 5f;
+
+        [Tooltip("...for at least this long, in seconds.")]
+        public float failsafeSeconds = 0.15f;
+
+        [Tooltip("The safety net only applies while the head turns slower than this (°/s): it's for slow eye drifts. During fast turns the creep is expected and the safety net would lock it in.")]
+        public float failsafeMaxHeadSpeedDps = 30f;
+
+        [Tooltip("Anchoring only holds while the head turns faster than this (°/s). With the head still, the headset's hold doesn't creep, so the filter just follows the raw gaze.")]
+        public float anchorMinHeadSpeedDps = 8f;
+
+        [Tooltip("Keep holding this long after the head slows down, in seconds, so a catch-up snap right after stopping is still handled.")]
+        public float anchorReleaseSeconds = 0.1f;
 
         [Header("Time-matching (latency fix)")]
         [Tooltip("Pair each eye sample with the head pose from the moment it was taken, instead of the current head. Toggle with M in Play mode.")]
@@ -195,6 +226,40 @@ namespace Hemianopia.Gaze
         /// <summary>True if the raw gaze actually hit a surface (false = looking at empty space).</summary>
         public bool RawFixationHit { get; private set; }
 
+        /// <summary>
+        /// The 3D point the HEMIANOPIA FILTER should use. With anchoring on (eye tracking), it's the anchored
+        /// fixation point: pinned in the world during a fixation, moved on real eye jumps. Otherwise it's
+        /// RawFixationPoint.
+        /// </summary>
+        public Vector3 FilterFixationPoint => IsAnchorActive ? _anchorPoint : RawFixationPoint;
+
+        /// <summary>Gaze ray toward FilterFixationPoint, from the current gaze origin. What the filter effectively uses.</summary>
+        public Ray FilterGazeRay
+        {
+            get
+            {
+                Ray raw = RawGazeRay;
+                if (!IsAnchorActive) return raw;
+                Vector3 toPoint = _anchorPoint - raw.origin;
+                return toPoint.sqrMagnitude > 1e-8f ? new Ray(raw.origin, toPoint.normalized) : raw;
+            }
+        }
+
+        /// <summary>True when the filter is using the anchored point (anchoring on, eye tracking, anchor set).</summary>
+        public bool IsAnchorActive => anchorFixations && IsEyeTracking && _anchorValid;
+
+        /// <summary>Angle between the raw gaze and the anchor right now, in degrees: how much creep is being held back.</summary>
+        public float AnchorDeviationDeg { get; private set; }
+
+        /// <summary>How many times the anchor has moved (new fixations) since Play started.</summary>
+        public int AnchorMoves { get; private set; }
+
+        /// <summary>True while anchoring is actively holding (head moving). False while it follows the raw gaze (head still).</summary>
+        public bool IsAnchorHolding { get; private set; }
+
+        /// <summary>Head turning speed, smoothed a little, in degrees per second.</summary>
+        public float HeadSpeedDps { get; private set; }
+
         /// <summary>Kept for older scripts. Same as RawGazeRay.</summary>
         public Ray GazeRay => RawGazeRay;
 
@@ -231,6 +296,13 @@ namespace Hemianopia.Gaze
                 timeMatchGaze = !timeMatchGaze;
                 Debug.Log($"[Gaze] Time-matching {(timeMatchGaze ? "ON" : "OFF")}");
             }
+#if ENABLE_INPUT_SYSTEM
+            if (Keyboard.current != null && Keyboard.current.kKey.wasPressedThisFrame)
+            {
+                anchorFixations = !anchorFixations;
+                Debug.Log($"[Gaze] Fixation anchoring {(anchorFixations ? "ON" : "OFF")}");
+            }
+#endif
         }
 
         void LateUpdate()
@@ -266,6 +338,7 @@ namespace Hemianopia.Gaze
             {
                 UpdateFixationPoint();
                 _filter.Step(RawGazeRay.direction, Time.deltaTime, snapThresholdDegrees, easeTimeConstant);
+                UpdateAnchor();
             }
 
             GazeUpdated?.Invoke(this);
@@ -456,6 +529,116 @@ namespace Hemianopia.Gaze
             rotation = inverseNow * thenRotation;
             translation = inverseNow * (thenPosition - now.position);
             return true;
+        }
+
+        // ---------- Fixation anchoring ----------
+        // The headset holds its eye reading during a fixation and snaps when something changes.
+        // A snap is either a catch-up (head turned, eyes stayed on the same thing: the gaze lands back near the
+        // anchor) or a real eye jump (the gaze lands somewhere new). Between snaps we keep the anchor, so the
+        // creep from the held reading never reaches the filter. Re-anchoring happens on the snap's own frame,
+        // so a real jump adds no lag.
+
+        Vector3 _anchorPoint;
+        bool _anchorValid;
+        Vector3 _previousEyeInHead;
+        bool _hasPreviousEye;
+        float _farSince = -1f;
+
+        void UpdateAnchor()
+        {
+            UpdateHeadSpeed();
+
+            if (!anchorFixations || !IsEyeTracking)
+            {
+                _anchorValid = false;
+                _hasPreviousEye = false;
+                IsAnchorHolding = false;
+                AnchorDeviationDeg = 0f;
+                return;
+            }
+
+            Vector3 eye = CorrectedDirectionHead;
+            bool snapped = _hasPreviousEye && Vector3.Angle(_previousEyeInHead, eye) >= snapDetectDegrees;
+            _previousEyeInHead = eye;
+            _hasPreviousEye = true;
+
+            // Hold only while the head is moving (plus a short release time after it slows down).
+            // With the head still, the headset's hold doesn't creep, so there's nothing to cancel:
+            // follow the raw gaze, so small corrective eye movements land exactly.
+            if (HeadSpeedDps >= anchorMinHeadSpeedDps) _lastMovingTime = Time.time;
+            bool holding = Time.time - _lastMovingTime <= anchorReleaseSeconds;
+
+            IsAnchorHolding = holding;
+            if (!_anchorValid || !holding)
+            {
+                FollowRaw(); // head still (or first frame): no creep to cancel
+                return;
+            }
+            // From here on, the head is moving: hold the anchor, re-anchor only on real jumps.
+
+            Ray raw = RawGazeRay;
+            float deviation = Vector3.Angle(raw.direction, _anchorPoint - raw.origin);
+            AnchorDeviationDeg = deviation;
+
+            if (snapped)
+            {
+                _farSince = -1f;
+                if (deviation > reanchorDegrees) MoveAnchor(); // landed somewhere new: a real eye jump
+                // else: a catch-up snap back onto the same point, keep the anchor
+            }
+            else if (deviation > failsafeDegrees && HeadSpeedDps < failsafeMaxHeadSpeedDps)
+            {
+                // Safety net for slow drifts the headset never snaps on. Not during fast turns,
+                // where the creep is expected and re-anchoring would lock part of it in.
+                if (_farSince < 0f) _farSince = Time.time;
+                else if (Time.time - _farSince >= failsafeSeconds) MoveAnchor();
+            }
+            else
+            {
+                _farSince = -1f;
+            }
+        }
+
+        // Head still: the filter's point simply follows the raw fixation point.
+        void FollowRaw()
+        {
+            _anchorPoint = RawFixationPoint;
+            _anchorValid = true;
+            _farSince = -1f;
+            AnchorDeviationDeg = 0f;
+        }
+
+        float _lastMovingTime = -1000f;
+        Quaternion _previousHeadRotation;
+        double _previousHeadTime = -1.0;
+
+        // Head turning speed from the camera's rotation between frames, lightly smoothed (about 50 ms).
+        void UpdateHeadSpeed()
+        {
+            if (viewCamera == null) return;
+            Quaternion rotation = viewCamera.transform.rotation;
+            double now = Time.realtimeSinceStartupAsDouble;
+            if (_previousHeadTime > 0.0)
+            {
+                float dt = (float)(now - _previousHeadTime);
+                if (dt > 1e-4f)
+                {
+                    float speed = Quaternion.Angle(_previousHeadRotation, rotation) / dt;
+                    float a = 1f - Mathf.Exp(-dt / 0.05f);
+                    HeadSpeedDps = Mathf.Lerp(HeadSpeedDps, speed, a);
+                }
+            }
+            _previousHeadRotation = rotation;
+            _previousHeadTime = now;
+        }
+
+        void MoveAnchor()
+        {
+            _anchorPoint = RawFixationPoint;
+            _anchorValid = true;
+            _farSince = -1f;
+            AnchorDeviationDeg = 0f;
+            AnchorMoves++;
         }
 
         // ---------- Our own head-pose history (fallback for time-matching) ----------

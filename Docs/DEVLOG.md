@@ -115,6 +115,25 @@ Newest first. Each entry says what changed and why.
     - Don't stack heavy smoothing on top. The headset already smooths.
     - The head-motion lean can likely be cancelled by holding gaze in WORLD space during fixations (our existing world-space fixation filter), snapping only on real jumps. During a fixation the eyes stay on the same world point, so world-space holding costs no lag there.
 
+### Fixation anchoring
+
+- **Idea:** use the headset's own snaps as the signal. After a catch-up snap the gaze lands back on the same world point (keep the anchor). After a real eye jump it lands somewhere new (move the anchor, same frame). Between snaps, the filter uses the anchored world point, so the creep from the headset's hold never reaches it.
+- **Added to `GazeProvider`:** `FilterFixationPoint` and `FilterGazeRay`, with snap detection (0.5°), re-anchor distance (1.5°) and a safety net (5° for 0.15 s). On by default for eye tracking. K toggles it. Details in [GAZE.md](GAZE.md), section 6.
+- **`HemianopiaController`** now uses `FilterFixationPoint`. **The head-motion test** now measures that same gaze (`FilterGazeRay`), so it can A/B the fix. The status panel shows anchoring ON/OFF and how much creep it's holding back.
+- **First A/B (2 runs each, glances removed):**
+
+| | Anchoring OFF | Anchoring ON |
+|---|---|---|
+| Fixed lean toward the turn | +2.1° | +1.2° |
+| Error, 5 to 40 °/s | 2.5° | 2.2° |
+| Error, 40 to 120 °/s | 3.9° | 2.8° |
+| Error, 120 °/s and up | 5.4° | 3.3° |
+| Error, head still | 0.65° | 1.64° |
+
+- **Works where it was meant to** (about 40% less error in fast turns, lean down about 40%), but **costs about 1° with the head still**: the anchor ignored corrective eye movements under 1.5°.
+- **Leftover lean:** at fast speeds the creep passes the 5° safety net within 150 ms, so the safety net re-anchored mid-creep and locked part of the lean in.
+- **Tweaks (v2):** anchoring only holds while the head turns (over 8 °/s, plus 0.1 s after), and follows the raw gaze when the head is still. The safety net only applies while the head turns slower than 30 °/s. The status panel shows holding vs following and the head speed.
+
 ## 2026-11-04
 
 ### Filter v0.1: each eye's boundary goes through the fixation point
@@ -178,7 +197,7 @@ The Project Setup Tool's Fix All turns some of these back on. Fix items one at a
 ## Next
 
 - **Run the calibration check on Tamanna** too, and compare with P01.
-- **World-space hold for the filter:** feed the hemianopia filter a world-space hold-or-snap gaze, to cancel the headset's head-motion lean. Measure it with the head-motion test.
+- **A/B fixation anchoring** with the head-motion test (K on vs off). The fixed lean should drop toward 0 with it on.
 - **Native build vs Link:** less urgent now that latency looks small, but still worth one comparison.
 - **Add a validation run** (a second pass with the correction on) for an honest after-correction error.
 - **Smart smoothing on the filter**, tuned from the noise numbers.

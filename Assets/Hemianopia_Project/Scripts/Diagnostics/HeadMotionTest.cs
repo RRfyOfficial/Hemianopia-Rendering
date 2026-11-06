@@ -85,6 +85,7 @@ namespace Hemianopia.Diagnostics
             public bool timeMatched; // this frame's gaze was time-matched to the head
             public TimeMatchStatus timeMatchState;
             public float ageMs;      // how old the eye sample was, ms
+            public bool anchored;    // fixation anchoring was active
         }
 
         readonly List<Sample> _samples = new List<Sample>();
@@ -211,7 +212,8 @@ namespace Hemianopia.Diagnostics
             _lastYaw = yaw; _lastPitch = pitch; _lastTime = now;
 
             // Error measured in the head's frame: where the gaze points vs where the dot is.
-            Ray gazeRay = g.RawGazeRay; // unsmoothed (bias-corrected if a calibration is on)
+            // It measures the gaze the HEMIANOPIA FILTER uses (anchored when fixation anchoring is on).
+            Ray gazeRay = g.FilterGazeRay;
             Vector3 toDot = _dot.position - gazeRay.origin;
             Vector2 gazeAngles = GazeCorrection.ToAngles(head.InverseTransformDirection(gazeRay.direction));
             Vector2 dotAngles = GazeCorrection.ToAngles(head.InverseTransformDirection(toDot));
@@ -234,6 +236,7 @@ namespace Hemianopia.Diagnostics
                 timeMatched = g.IsTimeMatched,
                 timeMatchState = g.TimeMatchState,
                 ageMs = g.SampleAgeMs,
+                anchored = g.IsAnchorActive,
             });
         }
 
@@ -246,6 +249,7 @@ namespace Hemianopia.Diagnostics
                 eyes = gaze.IsEyeTracking,
                 corrected = gaze.IsCorrectionActive,
                 timeMatchSetting = gaze.timeMatchGaze,
+                anchorSetting = gaze.anchorFixations && gaze.IsEyeTracking,
                 estimated = gaze.TimeMatchState == TimeMatchStatus.EstimatedLatency,
                 assumedLatencyMs = gaze.assumedLatencyMs,
                 still = PhaseStats(Phase.Still),
@@ -362,14 +366,14 @@ namespace Hemianopia.Diagnostics
 
                 var c = CultureInfo.InvariantCulture;
                 var sb = new StringBuilder();
-                sb.AppendLine($"# participant={r.participant}, time={r.timestamp}, source={(r.eyes ? "eyes" : "mouse")}, correction={(r.corrected ? "on" : "off")}, time_matching={(r.timeMatchSetting ? "on" : "off")}");
+                sb.AppendLine($"# participant={r.participant}, time={r.timestamp}, source={(r.eyes ? "eyes" : "mouse")}, correction={(r.corrected ? "on" : "off")}, time_matching={(r.timeMatchSetting ? "on" : "off")}, anchoring={(r.anchorSetting ? "on" : "off")}");
                 sb.AppendLine("# " + r.Summary());
-                sb.AppendLine("time_s,phase,yaw_rate_dps,pitch_rate_dps,err_az_deg,err_el_deg,err_total_deg,fresh,corrected,time_matched,time_match_state,sample_age_ms");
+                sb.AppendLine("time_s,phase,yaw_rate_dps,pitch_rate_dps,err_az_deg,err_el_deg,err_total_deg,fresh,corrected,time_matched,time_match_state,sample_age_ms,anchored");
                 foreach (Sample s in _samples)
                 {
-                    sb.AppendLine(string.Format(c, "{0:0.0000},{1},{2:0.00},{3:0.00},{4:0.0000},{5:0.0000},{6:0.0000},{7},{8},{9},{10},{11:0.0}",
+                    sb.AppendLine(string.Format(c, "{0:0.0000},{1},{2:0.00},{3:0.00},{4:0.0000},{5:0.0000},{6:0.0000},{7},{8},{9},{10},{11:0.0},{12}",
                         s.time, s.phase, s.yawRate, s.pitchRate, s.errAz, s.errEl, s.errTotal, s.fresh ? 1 : 0, s.corrected ? 1 : 0,
-                        s.timeMatched ? 1 : 0, s.timeMatchState, s.ageMs));
+                        s.timeMatched ? 1 : 0, s.timeMatchState, s.ageMs, s.anchored ? 1 : 0));
                 }
                 File.WriteAllText(path, sb.ToString());
                 return path;
@@ -406,6 +410,7 @@ namespace Hemianopia.Diagnostics
         public bool eyes;
         public bool corrected;
         public bool timeMatchSetting;     // time-matching switch at the start of the test
+        public bool anchorSetting;        // fixation anchoring was on
         public bool estimated;            // time-matching was estimating (eye clock unknown)
         public float assumedLatencyMs;    // the assumed latency it used
         public float timeMatchedShare;    // share of frames that actually got time-matched (0 to 1)
@@ -428,9 +433,9 @@ namespace Hemianopia.Diagnostics
             string fit = fitOk
                 ? string.Format(c, "Lean toward the turn {0:0.0}°, delay {1:0} ms (together they explain {2:0}% of the error), noise {3:0.00}°.", leanDeg, delayMs, rSquared * 100f, residualRmsDeg)
                 : "Not enough head movement to fit.";
-            string matching = timeMatchSetting
+            string matching = (timeMatchSetting
                 ? string.Format(c, "time-matching ON ({0:0}% of frames)", timeMatchedShare * 100f)
-                : "time-matching OFF";
+                : "time-matching OFF") + (anchorSetting ? ", anchoring ON" : ", anchoring OFF");
             return string.Format(c,
                 "[HeadMotion] {0} ({1}, correction {2}, {3}): error still {4:0.00}°, slow {5:0.00}° at {6:0} °/s, fast {7:0.00}° at {8:0} °/s. {9} Eye data {10:0} ms old. Tracker {11:0} Hz, frames {12:0} Hz.",
                 participant, eyes ? "eyes" : "MOUSE", corrected ? "on" : "off", matching,
@@ -443,7 +448,7 @@ namespace Hemianopia.Diagnostics
             var c = CultureInfo.InvariantCulture;
             string fit = fitOk ? string.Format(c, ", lean {0:0.0}°, delay ~{1:0} ms", leanDeg, delayMs) : "";
             return string.Format(c, "Head-motion ({0}): still {1:0.0}°, slow {2:0.0}°, fast {3:0.0}°{4}",
-                timeMatchSetting ? "time-matched" : "not time-matched",
+                anchorSetting ? "anchored" : "not anchored",
                 still.rmsErrorDeg, slow.rmsErrorDeg, fast.rmsErrorDeg, fit);
         }
 

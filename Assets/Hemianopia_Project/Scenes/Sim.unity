@@ -723,6 +723,7 @@ GameObject:
   - component: {fileID: 1211825483}
   - component: {fileID: 1211825484}
   - component: {fileID: 1211825485}
+  - component: {fileID: 1211825486}
   m_Layer: 0
   m_Name: Gaze
   m_TagString: Untagged
@@ -875,6 +876,30 @@ MonoBehaviour:
   dotDistance: 2
   dotSizeDegrees: 0.6
   minHeadSpeedForFit: 5
+  gaze: {fileID: 0}
+  hemianopia: {fileID: 0}
+  gazeDot: {fileID: 0}
+  calibration: {fileID: 0}
+--- !u!114 &1211825486
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1211825478}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: cafa7ce89b12d7d4e9fa349fa12289d5, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::Hemianopia.Diagnostics.SaccadeTest
+  jumpDegrees: 20
+  jumps: 16
+  minHoldSeconds: 1
+  maxHoldSeconds: 1.6
+  countdownSeconds: 3
+  randomSeed: 7
+  dotDistance: 2
+  dotSizeDegrees: 0.6
   gaze: {fileID: 0}
   hemianopia: {fileID: 0}
   gazeDot: {fileID: 0}

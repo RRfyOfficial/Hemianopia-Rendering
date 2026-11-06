@@ -144,7 +144,39 @@ The first time it can't run, the console prints the eye sample time, the clock, 
 
 Toggle with **M**. Setting: `timeMatchGaze` on `GazeProvider`. Samples older than `maxTimeMatchMs` (250 ms) are left alone, in case the clocks disagree.
 
-## 6. The fixation point (where in 3D)
+## 6. Fixation anchoring (cancels the headset's head-turn lean)
+
+**What the headset does.** The saccade test showed the headset doesn't pass raw eye data. It holds the reading nearly frozen during a fixation and snaps in one step when the eyes jump ([SACCADE_TEST.md](SACCADE_TEST.md)). During a head turn, the eyes counter-rotate smoothly, but the held reading doesn't, so the world gaze creeps toward the turn until the next snap. That's the ~2° lean from the head-motion test.
+
+**The fix: use the headset's own snaps as the signal.** A snap means one of two things:
+
+| Snap type | Where the gaze lands after it | What we do |
+|---|---|---|
+| Catch-up (head turned, eyes stayed on the same thing) | Back near the anchored world point | Keep the anchor |
+| Real eye jump | Somewhere new | Move the anchor there, on that same frame |
+
+Between snaps, the hemianopia filter uses the **anchored world point**, so the creep never reaches it. A real eye jump moves the anchor on the frame the headset reports it, so there's no added lag.
+
+**The rules, per frame (eye tracking only):**
+
+1. **Head still?** If the head turns slower than `anchorMinHeadSpeedDps` (8 °/s), and has for `anchorReleaseSeconds` (0.1 s), the filter just **follows the raw gaze**. The headset's hold only creeps while the head moves, so there's nothing to cancel, and small corrective eye movements land exactly.
+2. **Head moving: snap?** The eye-in-head reading (after calibration, before time-matching) changed by at least `snapDetectDegrees` (0.5°) since the last frame.
+3. **On a snap:** if the raw gaze is more than `reanchorDegrees` (1.5°) from the anchor, re-anchor to the current raw fixation point. Otherwise keep it.
+4. **No snap:** keep the anchor. Safety net, only while the head turns slower than `failsafeMaxHeadSpeedDps` (30 °/s): if the raw gaze stays more than `failsafeDegrees` (5°) from the anchor for `failsafeSeconds` (0.15 s), re-anchor anyway. That's for slow eye drifts the headset never snaps on. During fast turns the creep is expected, and re-anchoring mid-creep would lock part of it in.
+
+Head speed comes from the camera's rotation between frames, smoothed over about 50 ms.
+
+The anchor is a **3D point**, not a direction, so it stays right when the head moves sideways too. The filter reads it through `FilterFixationPoint`, and the head-motion test measures the same gaze through `FilterGazeRay`.
+
+**Toggle:** K in Play mode, or `anchorFixations` on `GazeProvider`. The status panel shows OFF, ON and following (head still), or ON and holding, with the head speed and how much creep it's holding back right now.
+
+**First A/B (v1, before the head-still and safety-net tweaks):** fast-turn error 5.4° to 3.3°, lean +2.1° to +1.2°, but still-head error 0.65° to 1.64°, because the anchor ignored small corrections under 1.5°. The tweaks above target both.
+
+**Trade-offs:**
+- Real eye movements under 1.5° that the headset doesn't snap on are ignored. That's below the tracker's own accuracy anyway.
+- Slow, smooth eye movements (following something moving) only update through the safety net, so the boundary can trail them by up to 5°. Worth revisiting once the test kitchen has moving objects.
+
+## 7. The fixation point (where in 3D)
 
 A direction says *which way* you're looking. The hemianopia filter also needs *where*: the 3D spot both eyes are pointed at, because each eye's boundary has to pass through it (see [FILTER.md](FILTER.md), section 2).
 
@@ -166,7 +198,7 @@ Updated in `LateUpdate` and again right before rendering, from **raw** gaze. Not
 
 Limitations: it changes depth instantly when the gaze crosses an object's edge, while real vergence takes a moment. And it assumes you look *at* surfaces, not through gaps.
 
-## 7. The fixation filter
+## 8. The fixation filter
 
 Real eyes don't glide. They jump (saccades, a few times per second) and hold still in between (fixations), with tracker noise on top. The filter keeps the jumps and irons out the wobble.
 
@@ -202,7 +234,7 @@ The defaults are a starting guess. Tune them on the headset using the R toggle (
 - **The 2 degree default is a guess.** It should come from the Quest Pro's measured accuracy and noise, ideally measured on our own setup.
 - **One update per rendered frame.** The tracker may sample at a different rate than the display.
 
-## 8. How to test
+## 9. How to test
 
 1. No headset: press Play. A red dot follows the mouse.
 2. Quest Pro over Link: press Play. The dot turns green and follows your eyes.
@@ -210,7 +242,7 @@ The defaults are a starting guess. Tune them on the headset using the R toggle (
 4. Press R to compare stable and raw gaze.
 5. The console prints which source is live (lines starting with `[Gaze]`).
 
-## 9. Open questions
+## 10. Open questions
 
 - How low does end-to-end gaze latency need to be before people stop noticing that a gaze-locked mask lags behind their saccades?
 - What snap threshold matches the Quest Pro's real tracking noise?

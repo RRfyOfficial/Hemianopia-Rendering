@@ -86,7 +86,7 @@ namespace Hemianopia.UI
         string _flash;
         float _flashUntil;
         bool _primed;
-        bool _lastApply, _lastFilter, _lastTimeMatch;
+        bool _lastApply, _lastFilter, _lastTimeMatch, _lastAnchor;
         float _ageAverageMs;
         BlindSide _lastSide;
         CalibrationResult _lastResult;
@@ -174,6 +174,7 @@ namespace Hemianopia.UI
         {
             bool apply = gaze.applyCorrection;
             bool timeMatch = gaze.timeMatchGaze;
+            bool anchor = gaze.anchorFixations;
             bool valid = gaze.Correction.IsValid;
             bool filter = hemianopia != null && hemianopia.filterEnabled;
             BlindSide side = hemianopia != null ? hemianopia.blindSide : BlindSide.Left;
@@ -190,6 +191,8 @@ namespace Hemianopia.UI
                     Flash(apply ? "Correction ON" : "Correction OFF");
                 else if (timeMatch != _lastTimeMatch)
                     Flash(timeMatch ? "Time-matching ON" : "Time-matching OFF");
+                else if (anchor != _lastAnchor)
+                    Flash(anchor ? "Fixation anchoring ON" : "Fixation anchoring OFF");
                 else if (filter != _lastFilter && !calibrating)
                     Flash(filter ? "Hemianopia filter ON" : "Hemianopia filter OFF");
                 else if (side != _lastSide)
@@ -199,6 +202,7 @@ namespace Hemianopia.UI
             _primed = true;
             _lastApply = apply;
             _lastTimeMatch = timeMatch;
+            _lastAnchor = anchor;
             _lastFilter = filter;
             _lastSide = side;
             _lastResult = result;
@@ -250,6 +254,11 @@ namespace Hemianopia.UI
                     _sb.AppendFormat(c, "     eye data age {0:0} ms (makes no sense)\n", gaze.SampleAgeMs);
                 else
                     _sb.AppendFormat(c, "     eye data {0:0} ms old\n", _ageAverageMs);
+
+                _sb.Append("Fixation anchoring: ");
+                if (!gaze.anchorFixations) _sb.Append("<color=#ff8a5d>OFF</color>\n");
+                else if (gaze.IsAnchorHolding) _sb.AppendFormat(c, "<color=#5dff8a>ON</color>, holding (head turning {0:0} °/s), holding back {1:0.0}°\n", gaze.HeadSpeedDps, gaze.AnchorDeviationDeg);
+                else _sb.Append("<color=#5dff8a>ON</color>, following (head still)\n");
             }
 
             CalibrationResult r = calibration != null ? calibration.LastResult : null;

@@ -109,7 +109,9 @@ namespace Hemianopia.Rendering
             // RAW fixation point, never the stable one. No smoothing, no added lag.
             // This is the 3D spot both eyes are looking at. The shader draws each eye's boundary
             // through it, so the two boundaries cross where you look instead of running parallel.
-            Vector3 fixation = gaze.RawFixationPoint;
+            // With fixation anchoring on, this is pinned in the world during a fixation (cancels the headset's
+            // head-turn lean) and moves on the same frame as a real eye jump. See Docs/GAZE.md.
+            Vector3 fixation = gaze.FilterFixationPoint;
 
             // "Vertical" follows the head, so tilting your head tilts the boundary with it.
             Vector3 headUp = gaze.viewCamera.transform.up;

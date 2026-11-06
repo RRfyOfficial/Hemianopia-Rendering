@@ -62,6 +62,7 @@ Connect the headset over Link and press Play in Unity. The dot turns green and f
 | Calibration correction on or off | V | Right thumbstick click |
 | Status panel in the headset on or off | I | Left menu button |
 | Run the head-motion test | T | Left grip |
+| Fixation anchoring on or off | K | |
 | Time-matching (experimental, off by default) on or off | M | |
 | Run the saccade test | J | Right grip |
 
