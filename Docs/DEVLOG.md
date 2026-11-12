@@ -2,6 +2,36 @@
 
 Newest first. Each entry says what changed and why.
 
+## 2026-11-11
+
+### Tamanna's moving block, logger and analysis script: hooked up and run
+
+- Added `TrialLogger` and `MovingBlock` (in `Hemianopia_TAMANNA/`) to the `Trials` object in `Sim.unity`. They use the existing gaze and filter code as is.
+- **Square path, mask off:** gaze follows the block's path, typically 2 to 3 degrees off, against about 0.3 when staring at a still dot. The reading freezes, then hops about 5 degrees, roughly 4 times a second. Could be real catch-up eye jumps, the headset's hold-and-snap, or both. Noted as a known quirk, not a blocker.
+- **Midline crossing, mask on:** with the eyes held on the centre dot (within 1 degree for 92% of the run), the block appeared and vanished 4 times, each within about half a degree of the dot. Russell saw it pop in and out cleanly, with no flicker or leak.
+- Run the square with the mask OFF. With it on, the block vanishes whenever it slips to the blind side of the gaze.
+
+### Room v0: shapes, the look check, and the first surprise (new `Scripts/Room/`)
+
+- **`TrackedObject`:** a name tag plus a small memory for one object (ever seen, last seen, on the blind side, hidden by the mask).
+- **`LookTracker`:** works out which object the gaze is resting on. A beam, not a single ray: within 3 degrees plus the object's size, at least partly on the seeing side, held for 0.1 s. Looked-at objects brighten.
+- **`RoomTest`:** key 5 places five shapes around you. Key 6 runs one surprise: a purple ball appears on the blind side, and the test times how long until it is first looked at. Results go through `TrialLogger`, plus one line per surprise in `CalibrationLogs/room_summary.csv`.
+- **First numbers (Russell, 10 tries, plain room):** typical time to find about 0.6 s with the mask off and about 2.3 s with it on. One person, tiny sample, and he knew a surprise was coming, so this shows the direction only.
+- **Fix:** the surprise now only appears while the eyes are resting on something. One try was "found" in 0.12 s because the eyes were already mid-jump toward the spot.
+
+### Nudge v0 and the lab look
+
+- **`NudgeCue`:** three amber chevrons beside the gaze, on the seeing side, pointing toward the missed object and lighting up in sequence. Key 7 switches the nudge on or off (it flashes once as a preview).
+- **Rule for now:** the surprise has sat on the blind side for 1 s without being looked at. It only covers the surprise. Next idea: nudge for anything on the blind side that has never been looked at.
+- **`LabEnvironment`:** a dark grid room built by code at Play (key 8 toggles it). Cosmetic only. Walls are kept dim so the background does not make things harder to find.
+- A dark room also makes the blind half read less like a black curtain and more like a gap, which is closer to what patients describe. Harder to see whether the mask is on, so a tint for filming may be needed later.
+- Do not compare tries from the plain room with tries from the lab room. Redo the no-nudge tries in the lab look.
+
+### Open
+
+- The surprise always lands on the blind side and the tester is expecting it. Needs a way to stop people hunting for it (Tamanna).
+- Recordings are not in git (on purpose). Share them directly.
+
 ## 2026-11-05
 
 ### Check-in with Prof. Zwicker
