@@ -29,7 +29,8 @@ namespace Hemianopia.Room
     /// nudge off and on shows whether the nudge helps.
     ///
     /// Controls:
-    ///     Keyboard:    5 = show or hide the room,  6 = run one surprise,  7 = nudge on or off,
+    ///     Keyboard:    5 = show or hide the room,  6 = run one surprise,
+    ///                  7 = nudge: off, then on for everything, then smart (model decides), then off again,
     ///                  9 = switch the nudge between "stays in the room" and "follows the gaze",
     ///                  G = show or hide the gaze laser (see GazeLaser)
     ///                  P = busy job on or off (see BusyJob)
@@ -105,6 +106,16 @@ namespace Hemianopia.Room
                  "for this long without being looked at, the nudge lets go and can point at something else.")]
         public float stickGraceSeconds = 0.75f;
 
+        [Header("Smart nudge (uses the trained model, see MissModel)")]
+        [Tooltip("When on, the nudge only steps in when the model guesses the person would miss the object for a long time. " +
+                 "Key 7 cycles: off, everything, smart.")]
+        public bool smartNudge = false;
+        [Tooltip("Smart nudge steps in when the model's guess is at least this many seconds. " +
+                 "8 s caught every missed surprise in the Nov 14 data with the fewest nudges.")]
+        public float smartThresholdSeconds = 8f;
+        [Tooltip("Safety net: if the model said 'they will find it' but it is still unseen after this long, nudge anyway.")]
+        public float smartPatienceSeconds = 5f;
+
         [Header("Logging")]
         [Tooltip("Start the TrialLogger for each surprise (and stop it afterwards) if it isn't already recording.")]
         public bool recordWithLogger = true;
@@ -135,6 +146,8 @@ namespace Hemianopia.Room
 
         readonly List<TrackedObject> _shapes = new List<TrackedObject>(); // the room's five shapes
         BusyJob _job;
+        MissModel _model;
+        float _trialGuess = -1f;     // the model's guess for the current surprise, made shortly after it appears
         float _trialOffsetDeg;       // how far into the blind side this surprise aims for
         float _trialElevationRange;  // how far above or below the gaze it may appear
         bool _inBlock;
@@ -183,6 +196,8 @@ namespace Hemianopia.Room
             _job = GetComponent<BusyJob>();
             if (_job == null) _job = gameObject.AddComponent<BusyJob>();
             _job.Marked += Queue;
+            _model = GetComponent<MissModel>();
+            if (_model == null) _model = gameObject.AddComponent<MissModel>();
         }
 
         void OnDisable()
@@ -248,6 +263,15 @@ namespace Hemianopia.Room
                 case Phase.Shown:
                     if (_surprise != null && logger != null)
                         logger.SetTarget(_surprise.transform.position, !_surprise.HiddenByMask);
+
+                    // Ask the model once, shortly after the surprise appears, and write its guess down. This
+                    // happens whether or not the nudge is on, so every run also tests the model.
+                    if (_surprise != null && _trialGuess < 0f && _model != null && _model.IsReady
+                        && now - _surprise.AppearedTime >= nudgeDelaySeconds)
+                    {
+                        _trialGuess = _model.PredictSeconds(_surprise.transform.position);
+                        if (_trialGuess >= 0f) Queue("guess:surprise=" + _trialGuess.ToString("0.0", C));
+                    }
 
 
                     if (_surprise != null && now - _surprise.AppearedTime > timeoutSeconds)
@@ -353,10 +377,24 @@ namespace Hemianopia.Room
 
         // ---------- Part 3: the nudge ----------
 
+        /// <summary>Cycles the nudge: off, on for everything, smart (the model decides), off again.</summary>
         public void ToggleNudge()
         {
-            nudgeEnabled = !nudgeEnabled;
-            Debug.Log($"[Room] Nudge {(nudgeEnabled ? "ON" : "OFF")}");
+            if (!nudgeEnabled)
+            {
+                nudgeEnabled = true;
+                smartNudge = false;
+            }
+            else if (!smartNudge)
+            {
+                smartNudge = true;
+            }
+            else
+            {
+                nudgeEnabled = false;
+                smartNudge = false;
+            }
+            Debug.Log("[Room] Nudge: " + NudgeModeText());
             // Flash it once when switching on, so you can see what it looks like and know it is on.
             if (_cue != null)
             {
@@ -365,6 +403,39 @@ namespace Hemianopia.Room
             }
             _nudgeTarget = null;
             UpdateHud();
+        }
+
+        string GuessText()
+        {
+            return _trialGuess >= 0f ? " The model had guessed " + _trialGuess.ToString("0.0", C) + " s." : "";
+        }
+
+        string NudgeModeText()
+        {
+            if (!nudgeEnabled) return "OFF";
+            return smartNudge
+                ? "SMART (only when the model guesses a long miss)"
+                : "ON for everything on the blind side you have not looked at";
+        }
+
+        /// <summary>
+        /// The smart rule. Ask the model how long this object would go unnoticed.
+        ///   - Long guess: step in now.
+        ///   - Short guess: leave the person alone, they will probably find it themselves.
+        ///   - Safety net: if it is still unseen after smartPatienceSeconds, step in anyway.
+        /// If the model is not ready (no history yet), behave like the plain rule.
+        /// </summary>
+        bool ModelSaysNudge(TrackedObject o, double now)
+        {
+            if (_model == null || !_model.IsReady) return true;
+            if (now - o.GuessTime > 0.2) // ask again a few times a second, not every frame
+            {
+                o.GuessSeconds = _model.PredictSeconds(o.transform.position);
+                o.GuessTime = now;
+            }
+            if (o.GuessSeconds < 0f) return true;
+            if (o.GuessSeconds >= smartThresholdSeconds) return true;
+            return now - o.AppearedTime >= smartPatienceSeconds;
         }
 
         public void ToggleCuePlacement()
@@ -411,6 +482,7 @@ namespace Hemianopia.Room
                     TrackedObject o = all[i];
                     if (o == null || o.EverSeen || !o.OnBlindSide) continue;
                     if (now - o.AppearedTime < nudgeDelaySeconds) continue;
+                    if (smartNudge && !ModelSaysNudge(o, now)) continue;
 
                     if (best == null)
                     {
@@ -476,12 +548,13 @@ namespace Hemianopia.Room
                 : "";
             _nudgeShown = false;
             _nudgeAtSeconds = 0.0;
+            _trialGuess = -1f;
 
             _startedLogger = false;
             if (logger != null)
             {
                 logger.SetTrial(_trialIndex, (maskOn ? "surprise_mask_on" : "surprise_mask_off")
-                                             + (_trialNudge ? "_nudge" : "")
+                                             + (_trialNudge ? (smartNudge ? "_nudge_smart" : "_nudge") : "")
                                              + (_job != null && _job.IsRunning ? "_job" : ""));
                 if (recordWithLogger && !_sessionWanted && !logger.IsRecording)
                 {
@@ -570,11 +643,11 @@ namespace Hemianopia.Room
             {
                 _surprise.baseColor = FoundColor;
                 _surprise.RefreshColor();
-                Debug.Log($"[Room] FOUND. The surprise went unnoticed for {missSeconds.ToString("0.00", C)} seconds.");
+                Debug.Log($"[Room] FOUND. The surprise went unnoticed for {missSeconds.ToString("0.00", C)} seconds.{GuessText()}");
             }
             else
             {
-                Debug.Log($"[Room] TIMEOUT. The surprise was not looked at within {timeoutSeconds.ToString("0", C)} seconds.");
+                Debug.Log($"[Room] TIMEOUT. The surprise was not looked at within {timeoutSeconds.ToString("0", C)} seconds.{GuessText()}");
             }
 
             WriteSummary(found, missSeconds);
@@ -655,7 +728,7 @@ namespace Hemianopia.Room
         // One line on the status panel (key I) saying what the room test is doing.
         void UpdateHud()
         {
-            string nudge = nudgeEnabled ? "<color=#ffd75a>ON</color>" : "OFF";
+            string nudge = !nudgeEnabled ? "OFF" : (smartNudge ? "<color=#ffd75a>SMART</color>" : "<color=#ffd75a>ON</color>");
             string mask = MaskOn() ? "<color=#5dff8a>ON</color>" : "<color=#ff8a5d>OFF</color>";
             string text;
             if (_inBlock)
@@ -692,7 +765,7 @@ namespace Hemianopia.Room
             _blockRemaining = Mathf.Max(1, blockTrials);
             _blockDone = 0;
             Queue("block_start");
-            Debug.Log($"[Room] Block of {_blockRemaining} surprises started (mask {(MaskOn() ? "ON" : "OFF")}, nudge {(nudgeEnabled ? "ON" : "OFF")}). " +
+            Debug.Log($"[Room] Block of {_blockRemaining} surprises started (mask {(MaskOn() ? "ON" : "OFF")}, nudge {NudgeModeText()}). " +
                       "Your job: look at whichever shape has the cyan ring. The shapes flash green when the block is done.");
             StartSurprise();
             StatusHud.SetBanner(JobBanner);
@@ -822,7 +895,7 @@ namespace Hemianopia.Room
 
                 using (var w = new StreamWriter(path, true))
                 {
-                    if (isNew) w.WriteLine("time,participant,trial,mask_on,blind_side,offset_deg,result,miss_s,nudge,nudge_at_s,cue_mode,job");
+                    if (isNew) w.WriteLine("time,participant,trial,mask_on,blind_side,offset_deg,result,miss_s,nudge,nudge_at_s,cue_mode,job,nudge_rule,model_guess_s,seen_hold_s");
                     w.WriteLine(string.Join(",",
                         System.DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss", C),
                         participant,
@@ -835,7 +908,10 @@ namespace Hemianopia.Room
                         _trialNudge ? "1" : "0",
                         _nudgeShown ? _nudgeAtSeconds.ToString("0.000", C) : "",
                         _trialCueMode,
-                        _job != null && _job.IsRunning ? "1" : "0"));
+                        _job != null && _job.IsRunning ? "1" : "0",
+                        _trialNudge ? (smartNudge ? "smart" : "all") : "",
+                        _trialGuess >= 0f ? _trialGuess.ToString("0.00", C) : "",
+                        _tracker != null ? Mathf.Max(_tracker.dwellSeconds, _tracker.seenSeconds).ToString("0.00", C) : ""));
                 }
             }
             catch (System.Exception e)

@@ -51,6 +51,12 @@ namespace Hemianopia.Room
         /// <summary>How long the gaze has rested on it without a break, in seconds.</summary>
         public float Dwell { get; set; }
 
+        /// <summary>The miss-time model's latest guess for this object, in seconds (-1 = not asked yet).</summary>
+        public float GuessSeconds { get; set; } = -1f;
+
+        /// <summary>When that guess was made (Time.realtimeSinceStartupAsDouble).</summary>
+        public double GuessTime { get; set; } = -1e9;
+
         Renderer _renderer;
         bool _pulsing;
         float _flashUntil = -1f;

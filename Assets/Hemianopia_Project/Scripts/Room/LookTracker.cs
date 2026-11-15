@@ -29,8 +29,12 @@ namespace Hemianopia.Room
         [Header("Flashlight beam")]
         [Tooltip("Half-width of the beam in degrees. The object's own size is added on top.")]
         public float coneDegrees = 3f;
-        [Tooltip("How long the gaze must rest on an object before it counts as looked at, in seconds.")]
+        [Tooltip("How long the gaze must rest on an object before it lights up as 'looking at it now', in seconds.")]
         public float dwellSeconds = 0.1f;
+        [Tooltip("How long the gaze must rest on an object before it is ticked off as SEEN, in seconds. " +
+                 "Longer than the light-up time on purpose: a quick hop across an object lights it up but does not " +
+                 "count as having seen it. (Until Nov 14 a 0.1 s hop counted, and about 1 find in 8 was a hop.)")]
+        public float seenSeconds = 0.35f;
 
         [Header("Feedback")]
         [Tooltip("Brighten an object while it is being looked at.")]
@@ -109,15 +113,22 @@ namespace Hemianopia.Room
                 o.Dwell = inBeam ? o.Dwell + dt : 0f;
                 bool looked = inBeam && o.Dwell >= dwellSeconds;
 
-                if (looked)
+                // Ticking it off as seen takes a longer rest than lighting it up.
+                float seenAfter = Mathf.Max(dwellSeconds, seenSeconds);
+                if (inBeam && o.Dwell >= seenAfter)
                 {
                     o.LastSeenTime = now;
                     if (!o.EverSeen)
                     {
                         o.EverSeen = true;
-                        o.FirstSeenTime = now;
+                        // Time the gaze arrived and lit it up, so times stay comparable with older recordings.
+                        o.FirstSeenTime = now - (seenAfter - dwellSeconds);
                         _firstLooks.Add(o);
                     }
+                }
+
+                if (looked)
+                {
                     if (angle < bestAngle)
                     {
                         bestAngle = angle;

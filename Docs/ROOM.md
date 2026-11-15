@@ -13,6 +13,8 @@ Scripts live in `Assets/Hemianopia_Project/Scripts/Room/`. They are attached to 
 | `BusyJob` | "Look at whichever shape is pulsing", so the tester is not hunting for the surprise |
 | `GazeLaser` | Shows the gaze as a laser plus the beam ring |
 | `LabEnvironment` | The dark grid room (cosmetic) |
+| `MissModel` | The trained model, live: guesses how long an object at a spot would go unnoticed |
+| `MissModelWeights` | The model's numbers. Written by `Analysis/train_model.py`, never edited by hand |
 
 ## Keys in Play mode
 
@@ -22,7 +24,7 @@ Scripts live in `Assets/Hemianopia_Project/Scripts/Room/`. They are attached to 
 | B | Flip the blind side |
 | 5 | Show or hide the five shapes |
 | 6 | Run one surprise |
-| 7 | Nudge on or off |
+| 7 | Nudge: off, then on for everything, then smart (the model decides), then off again |
 | 9 | Nudge placement: stays in the room, or follows the gaze |
 | 8 | Lab look on or off |
 | G | Gaze laser on or off |
@@ -71,3 +73,15 @@ python Analysis/train_model.py
 | `train_model.py` | Trains a linear model on the imaginary objects, tests it on the real surprises, prints how it did, saves the model |
 
 Everything they write goes to `CalibrationLogs/analysis/`, which is never committed.
+
+## Comparing the three nudge rules
+
+Same setup each time: mask on, busy job, blocks with N. Only key 7 changes.
+
+| Rule | Key 7 state | What the nudge does |
+|---|---|---|
+| No nudge | OFF | Nothing. This is the baseline |
+| Everything | ON | Points at anything on the blind side that has not been looked at |
+| Smart | SMART | Asks the model first. Steps in only if it guesses a miss of 8 s or more, or if the object is still unseen after 5 s |
+
+For each surprise, `room_summary.csv` records the rule (`nudge_rule`), whether and when the nudge appeared (`nudge_at_s`), how long the surprise went unnoticed (`miss_s`), and the model's guess (`model_guess_s`, written in every mode).

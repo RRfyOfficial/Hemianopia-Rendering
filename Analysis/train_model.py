@@ -125,6 +125,35 @@ def main():
     real_out.to_csv(os.path.join(out, "real_table_with_guesses.csv"), index=False)
     print(f"\nSaved the model to {os.path.join(out, 'miss_model.json')}")
 
+    # 5. Hand the same numbers to Unity as a small C# file (MissModel.cs reads it).
+    unity = os.path.join(here, "..", "Assets", "Hemianopia_Project", "Scripts", "Room")
+    if os.path.isdir(unity):
+        def arr(values):
+            return ", ".join(f"{float(v):.6g}f" for v in values)
+        code = f"""// Written by Analysis/train_model.py. Do not edit by hand: record more data and retrain instead.
+namespace Hemianopia.Room
+{{
+    /// <summary>
+    /// The numbers behind MissModel: a linear model that guesses how long an object would go unnoticed.
+    /// guess (seconds) = exp( sum of Weights[i] * (fact[i] - Mean[i]) / Std[i], plus Bias ) - 1, capped at 20.
+    /// </summary>
+    public static class MissModelWeights
+    {{
+        public const string TrainedOn = "{len(imag)} imaginary objects from free-looking recordings";
+        public const string TestedOn = "{len(real)} real surprises: tells missed from found {r_model['auc']:.2f} of the time";
+
+        public static readonly string[] Features = {{ {", ".join('"' + f + '"' for f in feats)} }};
+        public static readonly float[] Mean = {{ {arr(model["mean"])} }};
+        public static readonly float[] Std = {{ {arr(model["std"])} }};
+        public static readonly float[] Weights = {{ {arr(model["weights"])} }};
+        public const float Bias = {model["bias"]:.6g}f;
+    }}
+}}
+"""
+        with open(os.path.join(unity, "MissModelWeights.cs"), "w", encoding="utf-8") as f:
+            f.write(code)
+        print("Wrote the weights for Unity: Assets/Hemianopia_Project/Scripts/Room/MissModelWeights.cs")
+
     try:
         import matplotlib
         matplotlib.use("Agg")

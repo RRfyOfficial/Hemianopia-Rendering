@@ -44,6 +44,33 @@ Newest first. Each entry says what changed and why.
 - How to run it all, and every key, is in [ROOM.md](ROOM.md).
 - **Plan:** about 40 surprises with the nudge off plus one free-looking recording, then a Python script builds the table and trains a linear model.
 
+### Three-way nudge test: none vs everything vs smart
+
+All with the mask on and the busy job (Russell).
+
+| Rule | Surprises | Never found | Typical time when found | Slowest find | Nudges shown |
+|---|---|---|---|---|---|
+| No nudge | 40 | 12 (30%) | 2.1 s | 11.2 s | 0 |
+| Nudge on everything | 21 | 0 | 2.2 s | 18.9 s | 17 (81%) |
+| Smart nudge (model decides) | 20 | 0 | 1.9 s | 5.5 s | 5 (25%) |
+
+- **Both nudge rules removed the never-found cases.** Smart did it with 5 nudges where "everything" used 17.
+- **When smart stayed quiet (15 times), he found the surprise himself every time,** typically in 1.8 s, slowest 5.5 s. So the model's "they will find it" calls held up.
+- **When a nudge fired, the find came a typical 1.5 to 1.9 s later.**
+- **The nudge does not always land.** Under "everything", two surprises took 9 and 19 s even though the nudge appeared within a third of a second. Worth looking at why (not seen, or not understood).
+- **Unity's model matches the Python one.** For the 40 surprises with a logged guess, the live guess and the offline guess differ by 0.26 s on average (correlation 0.99).
+- **Caveats:** one person, about 20 surprises per nudge rule, one evening, an easy room. The difference in nudge counts is large. The differences in find times are not big enough to read anything into yet.
+- **Hops counted as finds.** Russell noticed that a quick hop of the gaze across the purple ball counted as finding it. In the data, 8 of 69 finds had the gaze on the ball for under 0.35 s (none 3 of 28, everything 1 of 21, smart 4 of 20). That flatters the smart rule a little. **Fixed going forward:** an object is now ticked off as seen only after the gaze rests on it for 0.35 s (`LookTracker.seenSeconds`). It still lights up after 0.1 s. `room_summary.csv` has a `seen_hold_s` column so old (0.10) and new (0.35) runs can be told apart.
+- **Stutter not solved.** Every block since the first one tonight has about a quarter of its frames at 50 ms (block 1 was a steady 72 frames a second). Cause unknown. To find out: check whether the status panel (I) was showing, and whether Unity was the front window.
+
+### The model, plugged into Unity (built, not yet run)
+
+- **`MissModel`:** keeps the last 10 s of head and gaze, and for any spot works out the same eight facts the training script uses, then applies the weights. `MissModelWeights.cs` is written by `Analysis/train_model.py`, so retraining updates Unity with no hand editing.
+- **Smart nudge:** key 7 now cycles off, everything, smart. In smart mode the nudge steps in only when the model guesses a miss of 8 s or more (`smartThresholdSeconds`). Safety net: if the object is still unseen after 5 s (`smartPatienceSeconds`), it nudges anyway.
+- **Every surprise now records the model's guess** (`model_guess_s` in `room_summary.csv`, and a `guess:` event in the recording), whatever the nudge mode. So every run also tests the model live, and the live facts can be checked against the offline ones.
+- `room_summary.csv` gains `nudge_rule` (`all` or `smart`) and `model_guess_s`.
+- **Next test:** busy job, mask on, 2 blocks with the nudge on everything and 2 blocks smart, against the 40 no-nudge surprises already recorded. Compare how many were missed, how long they took, and how many nudges were shown.
+
 ### First real data and the first model
 
 - **Recorded (Russell, mask on, nudge off, busy job on):** 4 blocks, 40 surprises, plus 5 minutes of free looking. The recorder held for every block.
