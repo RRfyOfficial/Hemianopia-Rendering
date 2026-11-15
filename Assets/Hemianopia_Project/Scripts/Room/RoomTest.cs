@@ -6,6 +6,7 @@ using Hemianopia.Calibration;
 using Hemianopia.Gaze;
 using Hemianopia.Logging;
 using Hemianopia.Rendering;
+using Hemianopia.UI;
 #if ENABLE_INPUT_SYSTEM
 using UnityEngine.InputSystem;
 #endif
@@ -31,6 +32,13 @@ namespace Hemianopia.Room
     ///     Keyboard:    5 = show or hide the room,  6 = run one surprise,  7 = nudge on or off,
     ///                  9 = switch the nudge between "stays in the room" and "follows the gaze",
     ///                  G = show or hide the gaze laser (see GazeLaser)
+    ///                  P = busy job on or off (see BusyJob)
+    ///                  N = run a block of surprises back to back, with the busy job (press again to stop early)
+    ///                  F = record free looking: the busy job only, no surprises (press again to stop early)
+    ///                  N and F refuse to start while the mask is off (the shapes flash red), because in the dark
+    ///                  room it is easy not to notice. Hold Shift to run them with the mask off on purpose.
+    ///
+    /// The status panel (key I) shows what the room test is doing.
     ///     Controllers: LEFT thumbstick right = show or hide the room,  LEFT thumbstick down = run one surprise,
     ///                  LEFT thumbstick left = nudge on or off
     ///
@@ -68,6 +76,23 @@ namespace Hemianopia.Room
         public float minRestSeconds = 0.25f;
         [Tooltip("Give up if the surprise has not been looked at after this long, in seconds.")]
         public float timeoutSeconds = 20f;
+
+        [Header("Variety")]
+        [Tooltip("When on, each surprise appears at a random distance into the blind side and a random height, " +
+                 "so the recordings cover many different situations.")]
+        public bool varySurprises = true;
+        [Tooltip("Random range for how far into the blind side the surprise appears, in degrees.")]
+        public Vector2 offsetRangeDegrees = new Vector2(12f, 40f);
+        [Tooltip("The surprise appears up to this many degrees above or below the gaze.")]
+        public float elevationRangeDegrees = 15f;
+
+        [Header("Blocks and free looking (for collecting data)")]
+        [Tooltip("How many surprises in one block (key N).")]
+        public int blockTrials = 10;
+        [Tooltip("In a block, each surprise appears after a random wait in this range, in seconds.")]
+        public Vector2 blockWaitRangeSeconds = new Vector2(3f, 9f);
+        [Tooltip("How long a free-looking recording lasts (key F), in seconds.")]
+        public float freeLookSeconds = 300f;
 
         [Header("Nudge")]
         [Tooltip("When on, the nudge points at anything on the blind side that has never been looked at. Toggle with 7 in Play mode.")]
@@ -108,6 +133,24 @@ namespace Hemianopia.Room
         double _nudgeAtSeconds; // how long after the surprise appeared
         string _trialCueMode = ""; // "stay" or "follow", for the summary file
 
+        readonly List<TrackedObject> _shapes = new List<TrackedObject>(); // the room's five shapes
+        BusyJob _job;
+        float _trialOffsetDeg;       // how far into the blind side this surprise aims for
+        float _trialElevationRange;  // how far above or below the gaze it may appear
+        bool _inBlock;
+        bool _blockAbort;
+        int _blockRemaining;
+        int _blockDone;
+        bool _freeLook;
+        double _freeLookEndAt;
+        bool _sessionLogger;          // the recorder was started by a block or a free-look recording
+        bool _sessionWanted;          // a block or free-look recording is supposed to be running right now
+        string _sessionLabel = "";
+        double _nextRestartTry;
+        bool _loggerToggleWas;        // the recorder's own controller shortcut, switched off during a session
+        static readonly Color WarnColor = new Color(0.95f, 0.20f, 0.15f);
+        int _stopLoggerInFrames = -1; // counts down so the last event is written before the recorder stops
+
         static readonly CultureInfo C = CultureInfo.InvariantCulture;
 
         static readonly float[] ShapeAzimuths = { -40f, -20f, 0f, 20f, 40f };
@@ -137,27 +180,65 @@ namespace Hemianopia.Room
             _cue = GetComponent<NudgeCue>();
             if (_cue == null) _cue = gameObject.AddComponent<NudgeCue>();
             if (GetComponent<GazeLaser>() == null) gameObject.AddComponent<GazeLaser>();
+            _job = GetComponent<BusyJob>();
+            if (_job == null) _job = gameObject.AddComponent<BusyJob>();
+            _job.Marked += Queue;
         }
 
         void OnDisable()
         {
             if (_tracker != null) _tracker.FirstLook -= OnFirstLook;
             if (_cue != null) _cue.Hide();
-            if (_startedLogger && logger != null)
+            if (_job != null)
+            {
+                _job.Marked -= Queue;
+                _job.End();
+            }
+            if ((_startedLogger || _sessionLogger) && logger != null)
             {
                 logger.ClearTarget();
                 logger.StopSession();
             }
             _startedLogger = false;
+            _sessionLogger = false;
+            if (_sessionWanted && logger != null) logger.useControllerToggle = _loggerToggleWas;
+            _sessionWanted = false;
+            _stopLoggerInFrames = -1;
+            _inBlock = false;
+            _freeLook = false;
             _phase = Phase.Idle;
+            StatusHud.SetBanner(null);
+            StatusHud.SetLine("room", null);
             ClearRoom();
         }
 
         void Update()
         {
+            // A block or free-look recording ended last frame: its final event has been written, so stop now.
+            if (_stopLoggerInFrames > 0 && --_stopLoggerInFrames == 0 && logger != null)
+            {
+                logger.ClearTarget();
+                logger.StopSession();
+            }
+
+            // Keep the session's recording alive. On Nov 14 the recorder was switched off about a second into
+            // a block by something outside this script, and one surprise went unrecorded.
+            if (_sessionWanted && recordWithLogger && logger != null && !logger.IsRecording
+                && Time.realtimeSinceStartupAsDouble >= _nextRestartTry)
+            {
+                _nextRestartTry = Time.realtimeSinceStartupAsDouble + 1.0; // at most one try per second
+                Debug.LogWarning("[Room] The recorder stopped in the middle of a session (something else switched it off). " +
+                                 "Restarted it in a new file.");
+                logger.sessionLabel = _sessionLabel;
+                _sessionLogger = logger.StartSession();
+                QueueLayout();
+            }
+
             HandleInput();
 
             double now = Time.realtimeSinceStartupAsDouble;
+            if (_freeLook && now >= _freeLookEndAt) EndFreeLook();
+
             switch (_phase)
             {
                 case Phase.Waiting:
@@ -200,7 +281,7 @@ namespace Hemianopia.Room
 
         public void ToggleRoom()
         {
-            if (_phase != Phase.Idle) return;
+            if (_phase != Phase.Idle || _inBlock || _freeLook) return;
             if (_root != null)
             {
                 ClearRoom();
@@ -240,7 +321,7 @@ namespace Hemianopia.Room
             {
                 Vector3 dir = Quaternion.AngleAxis(ShapeAzimuths[i], Vector3.up) * forward;
                 Vector3 pos = eye + dir * distance + Vector3.up * ShapeHeights[i];
-                CreateShape(ShapeKinds[i], ShapeLabels[i], ShapeColors[i], pos, shapeSize);
+                _shapes.Add(CreateShape(ShapeKinds[i], ShapeLabels[i], ShapeColors[i], pos, shapeSize));
             }
             Debug.Log("[Room] Room shown: 5 shapes around you. Look at each one and it should brighten.");
         }
@@ -263,6 +344,8 @@ namespace Hemianopia.Room
 
         void ClearRoom()
         {
+            if (_job != null) _job.End();
+            _shapes.Clear();
             if (_root != null) Destroy(_root);
             _root = null;
             _surprise = null;
@@ -281,6 +364,7 @@ namespace Hemianopia.Room
                 else _cue.Hide();
             }
             _nudgeTarget = null;
+            UpdateHud();
         }
 
         public void ToggleCuePlacement()
@@ -370,7 +454,7 @@ namespace Hemianopia.Room
 
         public void StartSurprise()
         {
-            if (_phase != Phase.Idle) return;
+            if (_phase != Phase.Idle || _freeLook) return;
             if (!FindReferences()) return;
             if (_root == null) BuildRoom();
             if (_root == null) return;
@@ -379,8 +463,12 @@ namespace Hemianopia.Room
             _trialIndex++;
 
             double now = Time.realtimeSinceStartupAsDouble;
-            _spawnAt = now + Random.Range(waitRangeSeconds.x, waitRangeSeconds.y);
+            Vector2 wait = _inBlock ? blockWaitRangeSeconds : waitRangeSeconds;
+            _spawnAt = now + Random.Range(wait.x, wait.y);
             _forceSpawnAt = _spawnAt + 5.0;
+
+            _trialOffsetDeg = varySurprises ? Random.Range(offsetRangeDegrees.x, offsetRangeDegrees.y) : surpriseOffsetDegrees;
+            _trialElevationRange = varySurprises ? elevationRangeDegrees : 8f;
 
             _trialNudge = nudgeEnabled;
             _trialCueMode = _trialNudge && _cue != null
@@ -392,8 +480,10 @@ namespace Hemianopia.Room
             _startedLogger = false;
             if (logger != null)
             {
-                logger.SetTrial(_trialIndex, (maskOn ? "surprise_mask_on" : "surprise_mask_off") + (_trialNudge ? "_nudge" : ""));
-                if (recordWithLogger && !logger.IsRecording)
+                logger.SetTrial(_trialIndex, (maskOn ? "surprise_mask_on" : "surprise_mask_off")
+                                             + (_trialNudge ? "_nudge" : "")
+                                             + (_job != null && _job.IsRunning ? "_job" : ""));
+                if (recordWithLogger && !_sessionWanted && !logger.IsRecording)
                 {
                     logger.sessionLabel = "room";
                     _startedLogger = logger.StartSession();
@@ -420,7 +510,7 @@ namespace Hemianopia.Room
             float sign = BlindLeft() ? -1f : 1f;
 
             // Aim for a spot on the blind side of the gaze, but keep it inside the headset's view.
-            float az = Mathf.Clamp(gazeAz + sign * surpriseOffsetDegrees, -maxHeadAzimuthDegrees, maxHeadAzimuthDegrees);
+            float az = Mathf.Clamp(gazeAz + sign * _trialOffsetDeg, -maxHeadAzimuthDegrees, maxHeadAzimuthDegrees);
             float offset = sign * (az - gazeAz);
             if (offset < minOffsetDegrees)
             {
@@ -430,7 +520,7 @@ namespace Hemianopia.Room
             }
 
             // Pick a height that doesn't sit on top of one of the room's shapes.
-            float baseEl = Random.Range(-8f, 8f);
+            float baseEl = Random.Range(-_trialElevationRange, _trialElevationRange);
             float[] tries = { baseEl, baseEl + 12f, baseEl - 12f };
             Vector3 pos = Vector3.zero;
             for (int i = 0; i < tries.Length; i++)
@@ -503,6 +593,218 @@ namespace Hemianopia.Room
             if (_surprise != null) Destroy(_surprise.gameObject);
             _surprise = null;
             _phase = Phase.Idle;
+
+            if (_inBlock)
+            {
+                _blockDone++;
+                _blockRemaining--;
+                if (_blockRemaining > 0 && !_blockAbort)
+                {
+                    StartSurprise();
+                    UpdateHud();
+                }
+                else
+                {
+                    EndBlock();
+                }
+            }
+        }
+
+        // ---------- Collecting data: the busy job, blocks, and free looking ----------
+
+        /// <summary>Busy job on or off, with nothing else going on. Good for getting used to it.</summary>
+        public void ToggleJob()
+        {
+            if (_job == null || _inBlock || _freeLook) return;
+            if (_job.IsRunning)
+            {
+                _job.End();
+                StatusHud.SetBanner(null);
+                UpdateHud();
+                Debug.Log("[Room] Busy job OFF.");
+                return;
+            }
+            if (!FindReferences()) return;
+            if (_root == null) BuildRoom();
+            if (_root == null) return;
+            _job.Begin(_shapes);
+            StatusHud.SetBanner(JobBanner);
+            UpdateHud();
+            Debug.Log("[Room] Busy job ON. Look at whichever shape has the cyan ring. It may be on your blind side.");
+        }
+
+        const string JobBanner = "Your job: look at the shape with the cyan ring";
+
+        bool MaskOn()
+        {
+            return filter != null && filter.filterEnabled;
+        }
+
+        // Blocks and free looking are for collecting blind-side data, so they need the mask. In the dark room
+        // it is easy not to notice that it is off (a whole block was recorded that way on Nov 14).
+        bool RefuseBecauseMaskOff(bool allowMaskOff, string key)
+        {
+            if (MaskOn() || allowMaskOff) return false;
+            for (int i = 0; i < _shapes.Count; i++)
+                if (_shapes[i] != null) _shapes[i].Flash(WarnColor, 1.2f);
+            StatusHud.SetLine("room", $"<color=#ff8a5d>Mask is OFF. Press H, then {key}. (Shift+{key} runs it with the mask off.)</color>");
+            Debug.LogWarning($"[Room] Not started: the mask is OFF. Press H, then {key}. Hold Shift with {key} to run it with the mask off on purpose.");
+            return true;
+        }
+
+        // One line on the status panel (key I) saying what the room test is doing.
+        void UpdateHud()
+        {
+            string nudge = nudgeEnabled ? "<color=#ffd75a>ON</color>" : "OFF";
+            string mask = MaskOn() ? "<color=#5dff8a>ON</color>" : "<color=#ff8a5d>OFF</color>";
+            string text;
+            if (_inBlock)
+                text = $"Room: block, surprise {_blockDone + 1} of {_blockDone + _blockRemaining}   mask {mask}   nudge {nudge}";
+            else if (_freeLook)
+                text = $"Room: free looking, recording   mask {mask}   (F stops it)";
+            else
+                text = $"Room: idle   nudge {nudge}   (N = block, F = free looking)";
+            StatusHud.SetLine("room", text);
+        }
+
+        /// <summary>
+        /// A block: several surprises back to back, with the busy job running the whole time, saved as ONE
+        /// recording. Press N again to stop after the current surprise.
+        /// </summary>
+        public void StartBlock(bool allowMaskOff = false)
+        {
+            if (_inBlock)
+            {
+                _blockAbort = true;
+                Debug.Log("[Room] Block will stop after this surprise.");
+                return;
+            }
+            if (_phase != Phase.Idle || _freeLook) return;
+            if (!FindReferences()) return;
+            if (_root == null) BuildRoom();
+            if (_root == null) return;
+            if (RefuseBecauseMaskOff(allowMaskOff, "N")) return;
+
+            BeginSessionLogging("roomblock");
+            _job.Begin(_shapes);
+            _inBlock = true;
+            _blockAbort = false;
+            _blockRemaining = Mathf.Max(1, blockTrials);
+            _blockDone = 0;
+            Queue("block_start");
+            Debug.Log($"[Room] Block of {_blockRemaining} surprises started (mask {(MaskOn() ? "ON" : "OFF")}, nudge {(nudgeEnabled ? "ON" : "OFF")}). " +
+                      "Your job: look at whichever shape has the cyan ring. The shapes flash green when the block is done.");
+            StartSurprise();
+            StatusHud.SetBanner(JobBanner);
+            UpdateHud();
+        }
+
+        void EndBlock()
+        {
+            _inBlock = false;
+            _blockAbort = false;
+            int hits = _job != null ? _job.Hits : 0;
+            int targets = _job != null ? _job.Targets : 0;
+            if (_job != null) _job.End();
+            Queue("block_end");
+            EndSessionLogging();
+            FlashShapes();
+            StatusHud.SetBanner(null);
+            UpdateHud();
+            Debug.Log($"[Room] Block finished: {_blockDone} surprises. Busy job: looked at {hits} of {targets} pulsing shapes.");
+        }
+
+        /// <summary>
+        /// Free looking: the busy job only, no surprises, recorded for freeLookSeconds. This is the recording
+        /// that imaginary objects get placed on afterwards (see Docs/DEVLOG.md, Nov 14).
+        /// </summary>
+        public void ToggleFreeLook(bool allowMaskOff = false)
+        {
+            if (_freeLook)
+            {
+                EndFreeLook();
+                return;
+            }
+            if (_phase != Phase.Idle || _inBlock) return;
+            if (!FindReferences()) return;
+            if (_root == null) BuildRoom();
+            if (_root == null) return;
+            if (RefuseBecauseMaskOff(allowMaskOff, "F")) return;
+
+            bool maskOn = filter != null && filter.filterEnabled;
+            if (logger != null) logger.SetTrial(0, maskOn ? "freelook_mask_on_job" : "freelook_mask_off_job");
+            BeginSessionLogging("freelook");
+            _job.Begin(_shapes);
+            _freeLook = true;
+            _freeLookEndAt = Time.realtimeSinceStartupAsDouble + Mathf.Max(5f, freeLookSeconds);
+            Queue("freelook_start");
+            StatusHud.SetBanner(JobBanner);
+            UpdateHud();
+            Debug.Log($"[Room] Free looking started for {freeLookSeconds.ToString("0", C)} seconds (mask {(maskOn ? "ON" : "OFF")}). " +
+                      "Your job: look at whichever shape has the cyan ring. No surprises. Press F to stop early.");
+        }
+
+        void EndFreeLook()
+        {
+            _freeLook = false;
+            int hits = _job != null ? _job.Hits : 0;
+            int targets = _job != null ? _job.Targets : 0;
+            if (_job != null) _job.End();
+            Queue("freelook_end");
+            EndSessionLogging();
+            FlashShapes();
+            StatusHud.SetBanner(null);
+            UpdateHud();
+            Debug.Log($"[Room] Free looking finished. Busy job: looked at {hits} of {targets} pulsing shapes.");
+        }
+
+        // One recording for the whole block or free-look session. Also notes where each shape is, so the
+        // analysis knows what was in the room.
+        void BeginSessionLogging(string label)
+        {
+            _sessionLogger = false;
+            _stopLoggerInFrames = -1;
+            _sessionLabel = label;
+            _sessionWanted = true;
+            if (logger != null)
+            {
+                // The recorder has its own controller shortcut (right thumbstick up). Switch it off for the
+                // session so a bumped thumbstick cannot stop the recording.
+                _loggerToggleWas = logger.useControllerToggle;
+                logger.useControllerToggle = false;
+            }
+            if (logger != null && recordWithLogger && !logger.IsRecording)
+            {
+                logger.sessionLabel = label;
+                _sessionLogger = logger.StartSession();
+            }
+            QueueLayout();
+        }
+
+        // Notes where each shape is, so the analysis knows what was in the room.
+        void QueueLayout()
+        {
+            for (int i = 0; i < _shapes.Count; i++)
+            {
+                TrackedObject s = _shapes[i];
+                if (s == null) continue;
+                Vector3 p = s.transform.position;
+                Queue($"shape:{s.label}@{p.x.ToString("F3", C)}|{p.y.ToString("F3", C)}|{p.z.ToString("F3", C)}");
+            }
+        }
+
+        void EndSessionLogging()
+        {
+            _sessionWanted = false;
+            if (logger != null) logger.useControllerToggle = _loggerToggleWas;
+            if (_sessionLogger) _stopLoggerInFrames = 1; // stop next frame, after the last event is written
+            _sessionLogger = false;
+        }
+
+        void FlashShapes()
+        {
+            for (int i = 0; i < _shapes.Count; i++)
+                if (_shapes[i] != null) _shapes[i].Flash(FoundColor, 1.2f);
         }
 
         void WriteSummary(bool found, double missSeconds)
@@ -520,7 +822,7 @@ namespace Hemianopia.Room
 
                 using (var w = new StreamWriter(path, true))
                 {
-                    if (isNew) w.WriteLine("time,participant,trial,mask_on,blind_side,offset_deg,result,miss_s,nudge,nudge_at_s,cue_mode");
+                    if (isNew) w.WriteLine("time,participant,trial,mask_on,blind_side,offset_deg,result,miss_s,nudge,nudge_at_s,cue_mode,job");
                     w.WriteLine(string.Join(",",
                         System.DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss", C),
                         participant,
@@ -532,7 +834,8 @@ namespace Hemianopia.Room
                         missSeconds.ToString("0.000", C),
                         _trialNudge ? "1" : "0",
                         _nudgeShown ? _nudgeAtSeconds.ToString("0.000", C) : "",
-                        _trialCueMode));
+                        _trialCueMode,
+                        _job != null && _job.IsRunning ? "1" : "0"));
                 }
             }
             catch (System.Exception e)
@@ -581,6 +884,9 @@ namespace Hemianopia.Room
                 else if (kb.digit6Key.wasPressedThisFrame) StartSurprise();
                 else if (kb.digit7Key.wasPressedThisFrame) ToggleNudge();
                 else if (kb.digit9Key.wasPressedThisFrame) ToggleCuePlacement();
+                else if (kb.pKey.wasPressedThisFrame) ToggleJob();
+                else if (kb.nKey.wasPressedThisFrame) StartBlock(kb.leftShiftKey.isPressed || kb.rightShiftKey.isPressed);
+                else if (kb.fKey.wasPressedThisFrame) ToggleFreeLook(kb.leftShiftKey.isPressed || kb.rightShiftKey.isPressed);
             }
 #endif
             if (!useControllerInput) return;

@@ -14,12 +14,18 @@ namespace Hemianopia.Gaze
     /// It keeps the same apparent size at any distance, like a laser pointer dot.
     ///
     /// Press R (keyboard) during Play to switch between stable gaze and raw gaze, to compare them.
+    /// Press D to show or hide the dots. They start hidden: with the gaze laser (G) they are no longer
+    /// needed all the time, and two dots in the middle of your view are distracting. Hiding them changes
+    /// nothing about the gaze data, the calibration, or the mask. It only stops drawing them.
     ///
     /// When a calibration correction is ON, a smaller red "ghost" dot shows where the tracker alone would
     /// have put your gaze. Correction OFF = no ghost. So flipping the correction (V) is visible right away.
     /// </summary>
     public class GazeDot : MonoBehaviour
     {
+        [Tooltip("Draw the dots. Toggle with D in Play mode. Off by default (they are distracting). Display only.")]
+        public bool showDots = false;
+
         [Tooltip("On: follow the stabilized gaze (calm). Off: follow the raw gaze (every wobble). Toggle with R in Play mode.")]
         public bool useStableGaze = true;
 
@@ -81,13 +87,18 @@ namespace Hemianopia.Gaze
                 useStableGaze = !useStableGaze;
                 Debug.Log($"[GazeDot] Showing {(useStableGaze ? "STABLE" : "RAW")} gaze");
             }
+            if (Keyboard.current != null && Keyboard.current.dKey.wasPressedThisFrame)
+            {
+                showDots = !showDots;
+                Debug.Log($"[GazeDot] Dots {(showDots ? "shown" : "hidden")}");
+            }
 #endif
         }
 
         void Place(GazeProvider gaze)
         {
             if (_dot == null) return;
-            if (!gaze.HasGaze)
+            if (!gaze.HasGaze || !showDots)
             {
                 _dot.gameObject.SetActive(false);
                 if (_ghost != null) _ghost.gameObject.SetActive(false);

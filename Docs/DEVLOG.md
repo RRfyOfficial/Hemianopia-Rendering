@@ -34,6 +34,52 @@ Newest first. Each entry says what changed and why.
 - **Fix:** the nudge used to wait on its chosen object forever. If that object slid onto the seeing side without being looked at, nothing else of the same age could be nudged. It now lets go after 0.75 s (`stickGraceSeconds`).
 - **How the nudge picks when several things qualify (as built):** the newest object wins. If they are the same age, the one nearest the gaze wins. Then it sticks with that one until it is looked at. Importance, movement, and how long something has gone unseen are not weighed yet. That ordering is what a trained model would replace with a score per object.
 
+### Step 1 toward the model: a fair, varied test (built, not yet run)
+
+- **`BusyJob`:** one shape pulses and the tester has to look at it, then another, and so on. It can be on the blind side, so sometimes it has to be searched for. Stops the tester hunting for the surprise. Key P runs it alone.
+- **Varied surprises:** each one now appears 12 to 40 degrees into the blind side (random) and up to 15 degrees above or below the gaze. Was fixed at 25.
+- **Blocks (key N):** 10 surprises back to back with the busy job, 3 to 9 s apart, saved as one recording. The shapes flash green at the end.
+- **Free looking (key F):** 5 minutes of the busy job with no surprises, recorded. This is the recording that imaginary objects get placed on.
+- `room_summary.csv` has a new `job` column. Shape positions and busy-job events are written into the recordings.
+- How to run it all, and every key, is in [ROOM.md](ROOM.md).
+- **Plan:** about 40 surprises with the nudge off plus one free-looking recording, then a Python script builds the table and trains a linear model.
+
+### First real data and the first model
+
+- **Recorded (Russell, mask on, nudge off, busy job on):** 4 blocks, 40 surprises, plus 5 minutes of free looking. The recorder held for every block.
+- **The fair test changed the picture.** 12 of the 40 surprises (30%) were never looked at within 20 s. The 28 that were found took a typical 2.1 s. Back when he was hunting for the surprise, nothing was ever missed.
+- **How things get found (from the 40 real runs):** every one of the 12 never-found surprises was never uncovered by his own looking around (it stayed on the blind side the whole 20 s). Every one of the 28 found ones was uncovered first, then looked at a typical 0.46 s later. So: you find it about half a second after your own looking uncovers it, and if nothing uncovers it you do not find it.
+- **Imaginary objects check out.** 3000 imaginary objects placed on the free-looking recording, using that rule: 32% never found (real: 30%), typical time when found 1.7 s (real: 2.1 s).
+- **First model (`Analysis/train_model.py`):** linear regression, 8 facts in, seconds unnoticed out (log scale), trained on the 3000 imaginary objects, tested on the 40 real surprises it had never seen.
+  - Guesses for the found ones: typical 2.1 s. Guesses for the never-found ones: typical 15.8 s.
+  - Given one missed and one found surprise, it gives the missed one the longer guess 99% of the time.
+  - Typical error 1.4 s. Always guessing the middle value: 1.8 s. Using only "how far into the blind side": no better than chance.
+- **What it learned:** two facts carry almost everything. `beyond_scan_deg` (the spot is further out than the gaze has reached in the last 10 s) and `since_uncovered_s` (how long since that spot was last uncovered). How far into the blind side the object is hardly matters. What matters is whether it sits somewhere the eyes have been visiting.
+- **What this would mean for the nudge:** nudging only when the guess is over 8 s would nudge 14 of the 40, and catch all 12 that were never found plus the two slowest finds (9 and 11 s). The current rule would nudge all 40.
+- **Caveats:** one person, one evening, one room, one busy job. The room makes it easy: surprises can land further out than the leftmost shape, where the job never sends the eyes. A one-line rule (`beyond_scan_deg > 0`) flags the same 14, so the model mostly rediscovered one fact. Needs more people and a less tidy scene before it means much.
+- **To check:** in blocks 2 to 4 and the free look, about a quarter of frames took 50 ms (average about 45 frames a second, block 1 was a steady 72). Possibly Unity losing focus to another window. A mask that lags lets the wearer peek.
+
+### First run of the busy job and blocks: a practice run, plus fixes
+
+- **What was recorded (Russell):** one block of 10 surprises with the busy job. The mask was OFF for all of it, so it is a practice run, not blind-side data. No free-looking recording yet.
+- **Mask off went unnoticed** because the dark room hides it. Blocks (N) and free looking (F) now refuse to start with the mask off and flash the shapes red. Shift+N or Shift+F runs them with the mask off on purpose.
+- **The recorder stopped about a second into the block** and the first surprise went unrecorded. The later ones were saved one file each. Cause not found: the eyes and head look normal at that moment, so something outside `RoomTest` switched it off. Now a session restarts the recorder if it stops, prints a warning, and switches off the recorder's controller shortcut while a session runs.
+- **Busy job feedback from Russell, fixed:**
+  - "Look at me" was a white pulse, the same look as "you are looking at this". It is now a pulsing cyan ring around the shape, and the shape itself only turns white when looked at.
+  - Hopping across a shape counted as looking at it. The gaze must now stay on it for 0.35 s (`BusyJob.holdSeconds`).
+- **Gaze dots:** now hidden by default, key D shows them. Display only, so calibration, the mask and the gaze data are unaffected.
+- **Status panel:** the room test now writes a line to it (key I): block progress, mask, nudge.
+- **Open question:** the look check that marks an object as seen still uses a 0.1 s dwell. Russell's "I hopped over it but did not really look" applies there too. The recordings keep the raw gaze, so the threshold can be changed later in analysis without re-recording.
+
+### Direction: from the hand-written rule to a trained score (discussed, not built)
+
+- **Goal:** replace the fixed tie-break with a small model. Input: one object's facts at a given moment (angles from the gaze and from the head, apparent size, speed, time since that area was last checked, recent scanning, head motion). Output: seconds until the person would notice it on their own. The highest score gets the nudge.
+- **Loss:** mean squared error between the predicted and the real time to first look. The model minimises its prediction error. The project's goal (shorter misses without nagging) is measured separately, with the nudge test.
+- **Data idea 1, real eyes with imaginary objects:** record a few minutes of looking around with the mask on and no surprises. Afterwards, place thousands of imaginary objects along that recording and ask when the real gaze first swept over each one. Fair because an object hidden on the blind side cannot change where the eyes go. Only valid while the object stays hidden.
+- **Data idea 2, Russell's "eye blueprint" (later layer):** measure how a person's eyes move (how long they rest, how far and which way they jump, how often they check the blind side, what pulls them, when the head joins in), then generate realistic random eye paths from that profile and run them against randomised scenes. Like a measured BRDF, sampled many times. Must be checked against the person's real miss times before anything is trained on it. Could also become a per-person profile the nudge adapts to.
+- **Scope note:** for this project the focus stays on the blind side. The general version is "anywhere the person's own vision cannot catch it", which later could include a patient's personal field map and things outside the view.
+- **Passthrough note:** everything from the per-object table onward carries over. The part that fills the table (Unity's knowledge of every object) does not, and needs a camera plus object detection. A stepping stone is to treat Unity's rendered frame as a fake camera feed.
+
 ## 2026-11-11
 
 ### Tamanna's moving block, logger and analysis script: hooked up and run

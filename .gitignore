@@ -111,3 +111,7 @@ InitTestScene*.unity*
 # Local recordings: participant data, never commit
 /CalibrationLogs/
 /Replays/
+
+# Python
+__pycache__/
+*.pyc

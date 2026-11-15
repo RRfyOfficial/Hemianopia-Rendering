@@ -52,6 +52,63 @@ namespace Hemianopia.Room
         public float Dwell { get; set; }
 
         Renderer _renderer;
+        bool _pulsing;
+        float _flashUntil = -1f;
+        Color _flashColor;
+
+        /// <summary>
+        /// While true, a glowing cyan ring pulses around the object: "look at me" (used by the BusyJob).
+        /// It is a ring on purpose, so it cannot be mixed up with the object turning white, which means
+        /// "you are looking at this right now".
+        /// </summary>
+        public bool Pulsing
+        {
+            get { return _pulsing; }
+            set
+            {
+                if (_pulsing == value) return;
+                _pulsing = value;
+                if (!_pulsing && _ring != null) _ring.gameObject.SetActive(false);
+            }
+        }
+
+        const int RingSegments = 40;
+        static readonly Color RingColor = new Color(0.20f, 0.95f, 1.00f);
+        static Material _ringMaterial;
+        LineRenderer _ring;
+
+        void EnsureRing()
+        {
+            if (_ring != null) return;
+            if (_ringMaterial == null)
+            {
+                Shader shader = Shader.Find("Sprites/Default");
+                if (shader == null) shader = Shader.Find("Universal Render Pipeline/Unlit");
+                _ringMaterial = new Material(shader);
+            }
+            GameObject go = new GameObject("LookAtMe_Ring");
+            go.transform.SetParent(transform.parent, false); // beside the shape, so the shape's scale does not affect it
+            _ring = go.AddComponent<LineRenderer>();
+            _ring.useWorldSpace = true;
+            _ring.loop = true;
+            _ring.positionCount = RingSegments;
+            _ring.alignment = LineAlignment.View;
+            _ring.sharedMaterial = _ringMaterial;
+            _ring.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            _ring.receiveShadows = false;
+        }
+
+        void OnDestroy()
+        {
+            if (_ring != null) Destroy(_ring.gameObject);
+        }
+
+        /// <summary>Show one colour for a moment (for example, green when a block of runs has finished).</summary>
+        public void Flash(Color color, float seconds)
+        {
+            _flashColor = color;
+            _flashUntil = Time.unscaledTime + seconds;
+        }
 
         /// <summary>Rough radius in metres, used to turn the object's size into an angle.</summary>
         public float WorldRadius
@@ -84,7 +141,55 @@ namespace Hemianopia.Room
         {
             if (_renderer == null) _renderer = GetComponent<Renderer>();
             if (_renderer == null) return;
+            if (_flashUntil > 0f) return; // Update is driving the colour right now
             _renderer.material.color = LookedAtNow ? Color.Lerp(baseColor, Color.white, 0.65f) : baseColor;
+        }
+
+        void Update()
+        {
+            if (_renderer == null) return;
+
+            if (_flashUntil > 0f)
+            {
+                if (Time.unscaledTime < _flashUntil)
+                {
+                    _renderer.material.color = _flashColor;
+                    return;
+                }
+                _flashUntil = -1f;
+                RefreshColor();
+            }
+
+            if (_pulsing)
+            {
+                Camera cam = Camera.main;
+                if (cam == null) return;
+                EnsureRing();
+                if (!_ring.gameObject.activeSelf) _ring.gameObject.SetActive(true);
+
+                // A bit more than two pulses per second: the ring breathes in size, thickness and brightness.
+                float k = 0.5f + 0.5f * Mathf.Sin(Time.unscaledTime * Mathf.PI * 2f * 2.2f);
+                float radius = WorldRadius * (1.55f + 0.15f * k);
+
+                // Draw the circle facing the person.
+                Vector3 centre = transform.position;
+                Vector3 toCam = cam.transform.position - centre;
+                toCam = toCam.sqrMagnitude > 1e-6f ? toCam.normalized : -cam.transform.forward;
+                Vector3 u = Vector3.Cross(cam.transform.up, toCam);
+                u = u.sqrMagnitude > 1e-6f ? u.normalized : cam.transform.right;
+                Vector3 v = Vector3.Cross(toCam, u);
+                for (int i = 0; i < RingSegments; i++)
+                {
+                    float a = i / (float)RingSegments * Mathf.PI * 2f;
+                    _ring.SetPosition(i, centre + (u * Mathf.Cos(a) + v * Mathf.Sin(a)) * radius);
+                }
+
+                _ring.widthMultiplier = 0.012f + 0.006f * k;
+                Color c = RingColor;
+                c.a = 0.55f + 0.45f * k;
+                _ring.startColor = c;
+                _ring.endColor = c;
+            }
         }
 
         void Awake()
