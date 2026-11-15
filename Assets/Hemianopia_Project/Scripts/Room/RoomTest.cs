@@ -160,6 +160,8 @@ namespace Hemianopia.Room
         bool _sessionWanted;          // a block or free-look recording is supposed to be running right now
         string _sessionLabel = "";
         double _nextRestartTry;
+        int _sessionFrames;           // frames drawn during the current block or free-look recording
+        int _sessionSlowFrames;       // how many of those took more than twice as long as they should
         bool _loggerToggleWas;        // the recorder's own controller shortcut, switched off during a session
         static readonly Color WarnColor = new Color(0.95f, 0.20f, 0.15f);
         int _stopLoggerInFrames = -1; // counts down so the last event is written before the recorder stops
@@ -247,6 +249,13 @@ namespace Hemianopia.Room
                 logger.sessionLabel = _sessionLabel;
                 _sessionLogger = logger.StartSession();
                 QueueLayout();
+            }
+
+            // Keep count of late frames during a session, to report how smooth the recording was.
+            if (_sessionWanted)
+            {
+                _sessionFrames++;
+                if (Time.unscaledDeltaTime > 0.030f) _sessionSlowFrames++; // a frame should take about 0.014 s
             }
 
             HandleInput();
@@ -839,6 +848,8 @@ namespace Hemianopia.Room
             _stopLoggerInFrames = -1;
             _sessionLabel = label;
             _sessionWanted = true;
+            _sessionFrames = 0;
+            _sessionSlowFrames = 0;
             if (logger != null)
             {
                 // The recorder has its own controller shortcut (right thumbstick up). Switch it off for the
@@ -866,8 +877,35 @@ namespace Hemianopia.Room
             }
         }
 
+        // Unity slows down when it is not the front window, and the picture in the headset stutters.
+        // Note it in the recording and warn, so a choppy block can be spotted and redone.
+        void OnApplicationFocus(bool focused)
+        {
+            if (!_sessionWanted) return;
+            Queue(focused ? "app_focused" : "app_unfocused");
+            if (!focused)
+            {
+                StatusHud.SetLine("room_focus", "<color=#ff8a5d>Unity is not the front window. The picture may stutter.</color>");
+                Debug.LogWarning("[Room] Unity is not the front window while recording. The picture may stutter. Click back into the Game view.");
+            }
+            else
+            {
+                StatusHud.SetLine("room_focus", null);
+            }
+        }
+
         void EndSessionLogging()
         {
+            if (_sessionWanted && _sessionFrames > 0)
+            {
+                float slow = 100f * _sessionSlowFrames / _sessionFrames;
+                string verdict = slow < 2f ? "smooth" : (slow < 8f ? "a little choppy" : "CHOPPY, consider redoing it");
+                Debug.Log($"[Room] Smoothness: {slow.ToString("0", C)}% of frames were late ({verdict}).");
+                StatusHud.SetLine("room_smooth", slow < 2f
+                    ? $"Last recording: smooth ({slow.ToString("0", C)}% late frames)"
+                    : $"<color=#ff8a5d>Last recording: {slow.ToString("0", C)}% late frames ({verdict})</color>");
+            }
+            StatusHud.SetLine("room_focus", null);
             _sessionWanted = false;
             if (logger != null) logger.useControllerToggle = _loggerToggleWas;
             if (_sessionLogger) _stopLoggerInFrames = 1; // stop next frame, after the last event is written
