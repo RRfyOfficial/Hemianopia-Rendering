@@ -109,8 +109,9 @@ InitTestScene*.unity*
 /[Aa]ssets/[Ss]ceneDependencyCache*
 
 # Local recordings: participant data, never commit
-/CalibrationLogs/
-/Replays/
+# No trailing slash on purpose: that way a symlink or junction with this name is ignored too
+/CalibrationLogs
+/Replays
 
 # Python
 __pycache__/
