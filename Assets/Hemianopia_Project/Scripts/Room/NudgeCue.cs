@@ -7,11 +7,22 @@ namespace Hemianopia.Room
     /// <summary>
     /// The nudge: a short row of glowing chevrons that tells the person "look over there".
     ///
-    /// It sits just beside where the person is looking, on their SEEING side (anything drawn on the blind
-    /// side would be hidden by the mask), and points toward the object they have missed. The chevrons light
-    /// up one after another toward the object, like runway lights, so the direction reads at a glance.
+    /// It appears on the person's SEEING side (anything drawn on the blind side would be hidden by the mask)
+    /// and points toward the object they have missed. The chevrons light up one after another toward the
+    /// object, like runway lights, so the direction reads at a glance.
     ///
-    /// It follows the same gaze the hemianopia filter uses, and is placed at about the depth the person is
+    /// Where it sits (placement):
+    ///   StayInRoom (default): it appears right at the edge of the blind half, touching the spot the person
+    ///       is looking at, and then stays fixed in the room. Glancing at it does not move it.
+    ///   FollowGaze (the first version, kept for comparison): it floats a few degrees to the seeing side
+    ///       of the gaze and moves with the eyes.
+    ///
+    /// Why the default changed (Nov 14 test): a new bright thing pulls the eyes toward it. The FollowGaze cue
+    /// popped up 5 degrees to the seeing side, so it pulled the eyes AWAY from the missed object, and because
+    /// it moved with the gaze, looking at it pushed it further away, like a carrot on a stick. In 3 of 7
+    /// tries the eyes and head swung 25 to 40 degrees the wrong way. See Docs/DEVLOG.md.
+    ///
+    /// It uses the same gaze the hemianopia filter uses, and is placed at about the depth the person is
     /// looking at, so it is comfortable to see in the headset.
     ///
     /// This script only DRAWS the nudge. Deciding WHEN to nudge is someone else's job (RoomTest for now).
@@ -19,16 +30,32 @@ namespace Hemianopia.Room
     ///     cue.Hide();         // fade out
     ///     cue.Preview(1.2f);  // flash it briefly toward the blind side, to show what it looks like
     /// </summary>
+    public enum CuePlacement
+    {
+        StayInRoom, // appears at the edge beside the gaze, then stays fixed in the room
+        FollowGaze  // floats beside the gaze and moves with the eyes
+    }
+
     public class NudgeCue : MonoBehaviour
     {
         [Header("References (found automatically if left empty)")]
         public HemianopiaController filter;
 
+        [Header("Placement")]
+        public CuePlacement placement = CuePlacement.StayInRoom;
+        [Tooltip("StayInRoom: how far the middle of the row sits from the gaze, toward the seeing side, in degrees. " +
+                 "Small, so the row touches the edge of the blind half and there is nowhere far to look.")]
+        public float edgeOffsetDegrees = 2.2f;
+        [Tooltip("StayInRoom: if the eyes settle further than this from the cue, it re-appears beside the new spot.")]
+        public float reanchorDegrees = 12f;
+        [Tooltip("StayInRoom: the eyes must rest this long before the cue re-appears, in seconds.")]
+        public float reanchorRestSeconds = 0.3f;
+
         [Header("Look")]
         public Color color = new Color(1f, 0.72f, 0.15f);
         [Tooltip("How many chevrons in the row.")]
         [Range(1, 5)] public int chevrons = 3;
-        [Tooltip("How far beside the gaze the row sits, toward the seeing side, in degrees.")]
+        [Tooltip("FollowGaze: how far beside the gaze the row sits, toward the seeing side, in degrees.")]
         public float offsetDegrees = 5f;
         [Tooltip("Half the height of one chevron, in degrees.")]
         public float chevronHeightDegrees = 1.3f;
@@ -52,6 +79,8 @@ namespace Hemianopia.Room
         Vector3 _lastTargetPos;
         float _previewUntil = -1f;
         float _alpha;
+        bool _anchored;      // StayInRoom: has the cue been given its spot in the room?
+        Vector3 _anchorPos;  // StayInRoom: that spot, in world space
 
         GameObject _root;
         LineRenderer[] _core;
@@ -63,6 +92,7 @@ namespace Hemianopia.Room
 
         public void Show(TrackedObject target)
         {
+            if (target != _target) _anchored = false; // a new target gets a fresh spot
             _target = target;
             if (target != null) _lastTargetPos = target.transform.position;
         }
@@ -77,6 +107,7 @@ namespace Hemianopia.Room
         public void Preview(float seconds)
         {
             _previewUntil = Time.unscaledTime + Mathf.Max(0.1f, seconds);
+            _anchored = false;
         }
 
         // ---------- Unity ----------
@@ -124,12 +155,10 @@ namespace Hemianopia.Room
 
             if (_alpha <= 0f)
             {
+                _anchored = false; // fully faded: next time it shows, it picks a fresh spot
                 if (_root != null && _root.activeSelf) _root.SetActive(false);
                 return;
             }
-
-            EnsureVisuals();
-            if (!_root.activeSelf) _root.SetActive(true);
 
             Transform ct = cam.transform;
             Ray ray = g.FilterGazeRay;
@@ -138,8 +167,49 @@ namespace Hemianopia.Room
             bool blindLeft = filter == null || filter.blindSide == BlindSide.Left;
             float seeingSign = blindLeft ? 1f : -1f; // turning right (+) is toward the seeing side when the left is blind
 
-            // Where the row sits: a few degrees beside the gaze, on the seeing side.
-            Vector3 cueDir = Quaternion.AngleAxis(seeingSign * offsetDegrees, ct.up) * ray.direction;
+            // Where the row sits.
+            Vector3 cuePos;
+            if (placement == CuePlacement.FollowGaze)
+            {
+                // A few degrees beside the gaze, on the seeing side, moving with the eyes.
+                Vector3 dir = Quaternion.AngleAxis(seeingSign * offsetDegrees, ct.up) * ray.direction;
+                float followDepth = Mathf.Clamp(Vector3.Distance(eye, g.FilterFixationPoint) * 0.9f, 0.5f, 2.5f);
+                cuePos = eye + dir * followDepth;
+            }
+            else
+            {
+                // Fixed in the room. Pick the spot while the eyes are resting, so it lands where they are looking.
+                bool pickSpot = !_anchored;
+                if (_anchored
+                    && Vector3.Angle(ray.direction, _anchorPos - eye) > reanchorDegrees
+                    && g.IsFixating && g.FixationDuration >= reanchorRestSeconds)
+                {
+                    pickSpot = true; // the eyes settled somewhere else and the target is still unseen: come along
+                    _alpha = 0f;     // fade in again at the new spot
+                }
+
+                if (pickSpot)
+                {
+                    if (!g.IsFixating && !_anchored)
+                    {
+                        // Eyes are mid-jump. Wait a frame or two so the cue does not land along the jump.
+                        _alpha = 0f;
+                        if (_root != null && _root.activeSelf) _root.SetActive(false);
+                        return;
+                    }
+                    Vector3 dir = Quaternion.AngleAxis(seeingSign * edgeOffsetDegrees, ct.up) * ray.direction;
+                    float stayDepth = Mathf.Clamp(Vector3.Distance(eye, g.FilterFixationPoint) * 0.97f, 0.5f, 2.5f);
+                    _anchorPos = eye + dir * stayDepth;
+                    _anchored = true;
+                }
+                cuePos = _anchorPos;
+            }
+
+            EnsureVisuals();
+            if (!_root.activeSelf) _root.SetActive(true);
+
+            float depth = Mathf.Max(0.05f, Vector3.Distance(eye, cuePos));
+            Vector3 cueDir = (cuePos - eye) / depth;
 
             // What it points at. In a preview there is no target, so point 30 degrees into the blind side.
             Vector3 targetPos = previewing && _target == null
@@ -153,10 +223,7 @@ namespace Hemianopia.Room
             point.Normalize();
             Vector3 up = Vector3.Cross(cueDir, point);
 
-            // Depth: about where the person is looking, a little in front, so it is easy on the eyes.
-            float depth = Mathf.Clamp(Vector3.Distance(eye, g.FilterFixationPoint) * 0.9f, 0.5f, 2.5f);
-
-            _root.transform.SetPositionAndRotation(eye + cueDir * depth, Quaternion.LookRotation(cueDir, up));
+            _root.transform.SetPositionAndRotation(cuePos, Quaternion.LookRotation(cueDir, up));
 
             // Sizes are set in degrees, so the cue looks the same size at any depth.
             float perDegree = Mathf.Tan(Mathf.Deg2Rad) * depth;

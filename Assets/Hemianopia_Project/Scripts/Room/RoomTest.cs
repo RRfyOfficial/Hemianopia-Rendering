@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using UnityEngine;
@@ -21,17 +22,20 @@ namespace Hemianopia.Room
     /// The test measures how long it takes until they first look at it. That gap is the number the whole
     /// project is about: how long something on the blind side goes unnoticed.
     ///
-    /// Part 3, the nudge (optional): if the surprise has sat unnoticed on the blind side for a moment,
-    /// the NudgeCue lights up beside the gaze and points toward it. Running the same surprise with the nudge
-    /// off and on shows whether the nudge helps.
+    /// Part 3, the nudge (optional): if anything has sat on the blind side for a moment without ever being
+    /// looked at, the NudgeCue lights up beside the gaze and points toward it. That covers the room's shapes
+    /// when they first appear, and the surprise later, with one rule. Running the same surprise with the
+    /// nudge off and on shows whether the nudge helps.
     ///
     /// Controls:
-    ///     Keyboard:    5 = show or hide the room,  6 = run one surprise,  7 = nudge on or off
+    ///     Keyboard:    5 = show or hide the room,  6 = run one surprise,  7 = nudge on or off,
+    ///                  9 = switch the nudge between "stays in the room" and "follows the gaze",
+    ///                  G = show or hide the gaze laser (see GazeLaser)
     ///     Controllers: LEFT thumbstick right = show or hide the room,  LEFT thumbstick down = run one surprise,
     ///                  LEFT thumbstick left = nudge on or off
     ///
     /// Each surprise is recorded through the TrialLogger (events: trial_start, appear:surprise,
-    /// nudge_on:surprise, first_look:surprise or timeout:surprise, trial_end), and one line per surprise is
+    /// nudge_on:<object>, first_look:surprise or timeout:surprise, trial_end), and one line per surprise is
     /// added to CalibrationLogs/room_summary.csv.
     ///
     /// The shapes stay fixed in the world, so the person can turn their head and look around freely.
@@ -66,10 +70,15 @@ namespace Hemianopia.Room
         public float timeoutSeconds = 20f;
 
         [Header("Nudge")]
-        [Tooltip("When on, the nudge appears if the surprise has gone unnoticed on the blind side. Toggle with 7 in Play mode.")]
+        [Tooltip("When on, the nudge points at anything on the blind side that has never been looked at. Toggle with 7 in Play mode.")]
         public bool nudgeEnabled = false;
-        [Tooltip("How long the surprise must go unnoticed before the nudge appears, in seconds.")]
-        public float nudgeDelaySeconds = 1f;
+        [Tooltip("How long something must sit unnoticed before the nudge points at it, in seconds. " +
+                 "Was 1 s at first. Shortened on Nov 14: with a 1 s wait plus about half a second to react, " +
+                 "the nudge could not beat someone who was already searching.")]
+        public float nudgeDelaySeconds = 0.3f;
+        [Tooltip("The nudge sticks with one object until it is looked at. If that object sits on the seeing side " +
+                 "for this long without being looked at, the nudge lets go and can point at something else.")]
+        public float stickGraceSeconds = 0.75f;
 
         [Header("Logging")]
         [Tooltip("Start the TrialLogger for each surprise (and stop it afterwards) if it isn't already recording.")]
@@ -92,9 +101,12 @@ namespace Hemianopia.Room
         float _spawnOffsetDeg;
         string _events = "";
         NudgeCue _cue;
+        TrackedObject _nudgeTarget; // what the nudge is pointing at right now
+        double _targetOffBlindSince = -1.0; // when the current target left the blind side (-1 = it is on it)
         bool _trialNudge;      // was the nudge switched on for this surprise?
         bool _nudgeShown;      // did the nudge actually appear?
         double _nudgeAtSeconds; // how long after the surprise appeared
+        string _trialCueMode = ""; // "stay" or "follow", for the summary file
 
         static readonly CultureInfo C = CultureInfo.InvariantCulture;
 
@@ -124,6 +136,7 @@ namespace Hemianopia.Room
             if (_tracker != null) _tracker.FirstLook += OnFirstLook;
             _cue = GetComponent<NudgeCue>();
             if (_cue == null) _cue = gameObject.AddComponent<NudgeCue>();
+            if (GetComponent<GazeLaser>() == null) gameObject.AddComponent<GazeLaser>();
         }
 
         void OnDisable()
@@ -155,17 +168,6 @@ namespace Hemianopia.Room
                     if (_surprise != null && logger != null)
                         logger.SetTarget(_surprise.transform.position, !_surprise.HiddenByMask);
 
-                    // The nudge rule, first version: it is new, it is on the blind side, and it has gone
-                    // unnoticed for a moment. Then point at it.
-                    if (_surprise != null && _trialNudge && !_nudgeShown && _cue != null
-                        && _surprise.OnBlindSide && now - _surprise.AppearedTime >= nudgeDelaySeconds)
-                    {
-                        _nudgeShown = true;
-                        _nudgeAtSeconds = now - _surprise.AppearedTime;
-                        _cue.Show(_surprise);
-                        Queue("nudge_on:surprise");
-                        Debug.Log("[Room] Nudge shown.");
-                    }
 
                     if (_surprise != null && now - _surprise.AppearedTime > timeoutSeconds)
                         Finish(false);
@@ -183,6 +185,8 @@ namespace Hemianopia.Room
                     Close();
                     break;
             }
+
+            UpdateNudge(now);
 
             // Hand this frame's events to the logger in one go. (TrialLogger.Mark keeps only the latest label.)
             if (_events.Length > 0)
@@ -276,6 +280,90 @@ namespace Hemianopia.Room
                 if (nudgeEnabled) _cue.Preview(1.5f);
                 else _cue.Hide();
             }
+            _nudgeTarget = null;
+        }
+
+        public void ToggleCuePlacement()
+        {
+            if (_cue == null) return;
+            _cue.placement = _cue.placement == CuePlacement.StayInRoom ? CuePlacement.FollowGaze : CuePlacement.StayInRoom;
+            Debug.Log($"[Room] Nudge placement: {(_cue.placement == CuePlacement.StayInRoom ? "stays in the room" : "follows the gaze")}");
+            if (nudgeEnabled) _cue.Preview(1.5f);
+        }
+
+        /// <summary>
+        /// The nudge rule. Point at anything that:
+        ///   1. is on the blind side of where the person is looking,
+        ///   2. has never been looked at, and
+        ///   3. has been there for at least nudgeDelaySeconds.
+        /// If several things qualify, the newest one wins (something that just appeared matters most).
+        /// Once it has picked something, it sticks with it until that thing has been looked at. It only
+        /// switches early for something clearly newer. (Without this, the cue flickered between the surprise
+        /// and an old unseen shape whenever the surprise slipped onto the seeing side for a moment.)
+        /// Once everything has been looked at, the nudge goes quiet.
+        /// </summary>
+        void UpdateNudge(double now)
+        {
+            if (_cue == null) return;
+
+            // Stick with the current target until it has been looked at. But if it has sat on the seeing side
+            // for a while without being looked at, let go, so the nudge is free to point at something else.
+            // (It becomes a candidate again as soon as it is back on the blind side.)
+            bool letGo = false;
+            if (_nudgeTarget != null && !_nudgeTarget.EverSeen)
+            {
+                if (_nudgeTarget.OnBlindSide) _targetOffBlindSince = -1.0;
+                else if (_targetOffBlindSince < 0.0) _targetOffBlindSince = now;
+                letGo = _targetOffBlindSince >= 0.0 && now - _targetOffBlindSince > stickGraceSeconds;
+            }
+            TrackedObject current = nudgeEnabled && _nudgeTarget != null && !_nudgeTarget.EverSeen && !letGo ? _nudgeTarget : null;
+
+            TrackedObject best = current;
+            if (nudgeEnabled)
+            {
+                List<TrackedObject> all = TrackedObject.All;
+                for (int i = 0; i < all.Count; i++)
+                {
+                    TrackedObject o = all[i];
+                    if (o == null || o.EverSeen || !o.OnBlindSide) continue;
+                    if (now - o.AppearedTime < nudgeDelaySeconds) continue;
+
+                    if (best == null)
+                    {
+                        best = o;
+                        continue;
+                    }
+
+                    double newer = o.AppearedTime - best.AppearedTime;
+                    if (newer > 0.05)
+                    {
+                        best = o; // clearly newer: it wins
+                    }
+                    else if (newer > -0.05 && current == null && o.AngleFromGaze < best.AngleFromGaze)
+                    {
+                        best = o; // about the same age and nothing picked yet: take the one nearest the gaze
+                    }
+                }
+            }
+
+            if (best == _nudgeTarget) return; // nothing changed
+
+            bool hadTarget = _nudgeTarget != null;
+            _nudgeTarget = best;
+            _targetOffBlindSince = -1.0;
+            if (best == null)
+            {
+                if (hadTarget) _cue.Hide();
+                return;
+            }
+
+            _cue.Show(best);
+            Queue("nudge_on:" + best.label);
+            if (best == _surprise && _phase == Phase.Shown)
+            {
+                _nudgeShown = true;
+                _nudgeAtSeconds = now - best.AppearedTime;
+            }
         }
 
         // ---------- Part 2: the surprise ----------
@@ -295,6 +383,9 @@ namespace Hemianopia.Room
             _forceSpawnAt = _spawnAt + 5.0;
 
             _trialNudge = nudgeEnabled;
+            _trialCueMode = _trialNudge && _cue != null
+                ? (_cue.placement == CuePlacement.StayInRoom ? "stay" : "follow")
+                : "";
             _nudgeShown = false;
             _nudgeAtSeconds = 0.0;
 
@@ -383,7 +474,6 @@ namespace Hemianopia.Room
 
             double now = Time.realtimeSinceStartupAsDouble;
             double missSeconds = (found ? _surprise.FirstSeenTime : now) - _surprise.AppearedTime;
-            if (_cue != null) _cue.Hide();
 
             Queue(found ? "first_look:surprise" : "timeout:surprise");
             if (found)
@@ -410,7 +500,6 @@ namespace Hemianopia.Room
                 if (_startedLogger) logger.StopSession();
             }
             _startedLogger = false;
-            if (_cue != null) _cue.Hide();
             if (_surprise != null) Destroy(_surprise.gameObject);
             _surprise = null;
             _phase = Phase.Idle;
@@ -431,7 +520,7 @@ namespace Hemianopia.Room
 
                 using (var w = new StreamWriter(path, true))
                 {
-                    if (isNew) w.WriteLine("time,participant,trial,mask_on,blind_side,offset_deg,result,miss_s,nudge,nudge_at_s");
+                    if (isNew) w.WriteLine("time,participant,trial,mask_on,blind_side,offset_deg,result,miss_s,nudge,nudge_at_s,cue_mode");
                     w.WriteLine(string.Join(",",
                         System.DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss", C),
                         participant,
@@ -442,7 +531,8 @@ namespace Hemianopia.Room
                         found ? "found" : "timeout",
                         missSeconds.ToString("0.000", C),
                         _trialNudge ? "1" : "0",
-                        _nudgeShown ? _nudgeAtSeconds.ToString("0.000", C) : ""));
+                        _nudgeShown ? _nudgeAtSeconds.ToString("0.000", C) : "",
+                        _trialCueMode));
                 }
             }
             catch (System.Exception e)
@@ -490,6 +580,7 @@ namespace Hemianopia.Room
                 if (kb.digit5Key.wasPressedThisFrame) ToggleRoom();
                 else if (kb.digit6Key.wasPressedThisFrame) StartSurprise();
                 else if (kb.digit7Key.wasPressedThisFrame) ToggleNudge();
+                else if (kb.digit9Key.wasPressedThisFrame) ToggleCuePlacement();
             }
 #endif
             if (!useControllerInput) return;

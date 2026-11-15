@@ -965,7 +965,7 @@ MonoBehaviour:
   minRestSeconds: 0.25
   timeoutSeconds: 20
   nudgeEnabled: 0
-  nudgeDelaySeconds: 1
+  nudgeDelaySeconds: 0.3
   recordWithLogger: 1
   useControllerInput: 1
 --- !u!114 &1819386807

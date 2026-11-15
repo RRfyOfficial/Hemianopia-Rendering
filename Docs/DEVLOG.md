@@ -2,6 +2,38 @@
 
 Newest first. Each entry says what changed and why.
 
+## 2026-11-14
+
+### First nudge test: the nudge made things slower, and why
+
+- **Test (Russell, mask on, lab room):** 4 surprises with the nudge off, 7 with it on.
+- **Result:** typical time to find about 1.4 s with the nudge off and about 2.7 s with it on. The nudge hurt.
+- **Why 1, the cue pulls the eyes the wrong way.** A new bright thing draws the eyes to it. The chevrons popped up 5 degrees to the seeing side, so the eyes went toward them, away from the surprise. They also moved with the gaze, so looking at them pushed them further away (a carrot on a stick). In 3 of the 7 nudge tries, the eyes and head swung 25 to 40 degrees the wrong way at the moment the cue appeared. Russell confirmed he felt pulled to look at it.
+- **Why 2, the tester hunts.** With the nudge off, he started sweeping toward the blind side almost as soon as the surprise appeared, because he knew it was coming and which side. He found it in about 1.4 s, and the nudge only appears after 1 s, so it cannot win that race. The test needs a way to stop people hunting (still open, Tamanna).
+- **Takeaway:** where the nudge sits matters as much as what it looks like. A nudge that steals the eyes is worse than no nudge.
+
+### Nudge v1: appears at the edge, stays in the room
+
+- **`NudgeCue` placement:** the default is now `StayInRoom`. The row appears touching the edge of the blind half, right beside the spot being looked at, then stays fixed in the room, so glancing at it does not move it. If the eyes settle more than 12 degrees away and the target is still unseen, it re-appears beside the new spot.
+- The first version is kept as `FollowGaze`. Key 9 switches between the two, so they can be compared.
+- **Rule fix:** the nudge now sticks with one target until it has been looked at. On one try it flickered between the surprise and an unseen shape.
+- `room_summary.csv` has a new `cue_mode` column (`stay` or `follow`). All nudge tries before this change are `follow`.
+- Only the placement changed. The 1 s wait is the same, so a retest shows the effect of placement alone.
+
+### Nudge v1 retest, and a shorter wait
+
+- **Retest (Russell, mask on, lab room, 6 tries, `stay`):** typical time to find about 2.0 s, slowest 2.5 s. The old `follow` cue was about 2.7 s, slowest 4.4 s. No nudge was about 1.4 s.
+- **The wrong-way swings are gone.** After the new cue appeared, the eyes drifted away by 4 degrees at most (25 to 40 before). When he was still far from the surprise as the cue appeared, he started moving toward it about half a second later.
+- **Why it still trails no nudge:** the 1 s wait plus about half a second to react, and he hunts when the nudge is off but tends to wait for it when it is on.
+- **Change:** `nudgeDelaySeconds` is now 0.3 s (was 1 s). Not retested yet.
+- **To do, agreed but not built:** make the test fair with a small job that keeps the eyes busy (for example, look at whichever shape is pulsing), so nobody can camp on the blind side waiting for the surprise. This is what will show what the nudge is really worth.
+
+### Gaze laser, and a nudge fix
+
+- **Added `GazeLaser`:** key G shows a laser ending on the spot the gaze lands, plus a ring the size of the `LookTracker` beam (3 degrees). It draws the same gaze the mask and the look check use. Off by default. Leave it off for timed tests.
+- **Fix:** the nudge used to wait on its chosen object forever. If that object slid onto the seeing side without being looked at, nothing else of the same age could be nudged. It now lets go after 0.75 s (`stickGraceSeconds`).
+- **How the nudge picks when several things qualify (as built):** the newest object wins. If they are the same age, the one nearest the gaze wins. Then it sticks with that one until it is looked at. Importance, movement, and how long something has gone unseen are not weighed yet. That ordering is what a trained model would replace with a score per object.
+
 ## 2026-11-11
 
 ### Tamanna's moving block, logger and analysis script: hooked up and run
@@ -22,7 +54,7 @@ Newest first. Each entry says what changed and why.
 ### Nudge v0 and the lab look
 
 - **`NudgeCue`:** three amber chevrons beside the gaze, on the seeing side, pointing toward the missed object and lighting up in sequence. Key 7 switches the nudge on or off (it flashes once as a preview).
-- **Rule for now:** the surprise has sat on the blind side for 1 s without being looked at. It only covers the surprise. Next idea: nudge for anything on the blind side that has never been looked at.
+- **Rule:** nudge for anything that is on the blind side, has never been looked at, and has been there for 1 s. If several qualify, the newest wins. Once everything has been looked at, it goes quiet. (The first version only covered the surprise.) "Looked at" means the gaze rested on it, so something only caught in the corner of the eye still counts as unseen.
 - **`LabEnvironment`:** a dark grid room built by code at Play (key 8 toggles it). Cosmetic only. Walls are kept dim so the background does not make things harder to find.
 - A dark room also makes the blind half read less like a black curtain and more like a gap, which is closer to what patients describe. Harder to see whether the mask is on, so a tint for filming may be needed later.
 - Do not compare tries from the plain room with tries from the lab room. Redo the no-nudge tries in the lab look.
