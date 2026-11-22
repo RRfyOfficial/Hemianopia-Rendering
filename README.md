@@ -6,18 +6,28 @@ Hemianopia is the loss of the same half of the visual field in both eyes, usuall
 
 **Team:** Russell Mehta (rendering, eye tracking, code) and Tamanna (neuroscience)
 
+## Where it stands and where it's going
+
+**Working today:** the gaze-locked mask, a test room where a ball appears on the blind side, arrows that nudge the wearer toward it, and a small trained model that decides when the arrows are needed. In a first test on one person, the smart nudge removed the never-found cases with far fewer nudges than nudging every time. The numbers are in [`Docs/DEVLOG.md`](Docs/DEVLOG.md). It is pilot data from one person.
+
+**Next (chosen 21 Nov 2026):** objects that approach from the blind side, and a nudge that fires when the wearer would not notice in time, meaning the model's guess is longer than the time until the object reaches them. Not built yet.
+
+**Where it should end up:** passthrough on the Meta VR Glasses, with real objects found by computer vision. The Unity project is the simulator where we work it out first.
+
+The plan, what has to change, and what is still undecided are in [`Docs/DIRECTION.md`](Docs/DIRECTION.md).
+
 ## How it's built
 
 Six layers, each with one job, so any one of them can be rebuilt without breaking the others.
 
 | Layer | Job | Status |
 |---|---|---|
-| 1. Gaze source | Where is the person looking? Quest Pro eye tracking, or the mouse as a stand-in | Done (v1), calibration check added |
+| 1. Gaze source | Where is the person looking? Quest Pro eye tracking, or the mouse as a stand-in | Done (v1), with a calibration check and fixation anchoring |
 | 2. Scene render | Standard URP, untouched | Done |
-| 3. Hemianopia filter | Image-space pass that hides one half of the visual field, locked to gaze | v0 in progress |
-| 4. Blind-field tracker | What's on the blind side, and when it was last seen | Planned |
-| 5. Cue strategy | None, always-on, or smart (staleness-based) | Planned |
-| 6. Logger | Gaze, events, trial results | Planned |
+| 3. Hemianopia filter | Image-space pass that hides one half of the visual field, locked to gaze | Working (v0.1): hard edge, no macular sparing |
+| 4. Blind-field tracker | What's on the blind side, and when it was last seen | Working (v0): `TrackedObject`, `LookTracker` |
+| 5. Cue strategy | None, always-on, or smart (the model decides) | Working for still objects: `NudgeCue`, `MissModel`. Approaching objects are next |
+| 6. Logger | Gaze, events, trial results | Working: `TrialLogger`, plus `room_summary.csv` |
 
 Layers 1 to 3 are the simulator. Layers 4 to 6 are the experiment, where cue strategies get swapped and compared.
 
@@ -139,11 +149,13 @@ Assets/
     Scripts/Calibration/ Step 1: CalibrationRunner
     Scripts/UI/          StatusHud (the in-headset status panel)
     Scripts/Diagnostics/ HeadMotionTest (lean vs latency), SaccadeTest (how fast the tracker follows eye jumps)
+    Scripts/Room/        layers 4 and 5: the test room, the busy job, the nudge, the miss-time model
+    Hemianopia_TAMANNA/  layer 6: TrialLogger, plus MovingBlock and its analysis script
     Shaders/             layer 3: HemianopiaFilter.shader
     Materials/
   URPDefaultResources/   URP pipeline assets ("Medium" is the one in use everywhere)
   XR/, Oculus/           XR and Meta settings, managed by Unity and the Meta SDK
-Analysis/                Python scripts that turn recordings into the miss-time model
+Analysis/                Python scripts that turn recordings into the miss-time model, and look into slow finds
 Docs/                    design notes and the dev log (Unity ignores this folder)
 CalibrationLogs/         recordings: a link to the private shared folder (never committed)
 ```
@@ -158,6 +170,7 @@ CalibrationLogs/         recordings: a link to the private shared folder (never 
 
 ## Docs
 
+- [`Docs/DIRECTION.md`](Docs/DIRECTION.md): where the project is going, what has to change, what is undecided
 - [`Docs/GAZE.md`](Docs/GAZE.md): how the gaze system works, with the math
 - [`Docs/FILTER.md`](Docs/FILTER.md): how the hemianopia filter works, with the math and the Unity setup
 - [`Docs/CALIBRATION.md`](Docs/CALIBRATION.md): the calibration check, bias vs noise, with the math

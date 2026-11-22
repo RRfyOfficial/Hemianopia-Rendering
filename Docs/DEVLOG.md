@@ -2,6 +2,41 @@
 
 Newest first. Each entry says what changed and why.
 
+## 2026-11-21
+
+No code changed today. One script merged, one first look at its output, and a decision on direction.
+
+### Slow-nudges script merged, and a first look at its pictures
+
+- **Merged:** Tamanna's `Analysis/slow_nudges.py` is on `main`. The `slow-nudges` branch is deleted. The script takes every mask-on surprise where the arrows appeared, picks out the slow ones (more than 4 s from arrows to first look by default), prints plain facts about each, and saves a two-panel picture per case. It only reads recordings.
+- **Her run (14 Nov blocks, P01):** four slow cases.
+
+| Nudge rule | Arrows to first look |
+|---|---|
+| Everything | 18.6 s |
+| Everything | 8.8 s |
+| Everything | 5.1 s |
+| Smart | 4.5 s |
+
+- **First read, from the pictures only:** in the two slowest cases, the ball spent long stretches outside the headset's view after the arrows appeared (more than about 48 degrees to the side of the head), because the head had turned away from it. The eyes stayed within about 30 degrees of straight ahead and did not push toward the blind side. The gaze kept going back to the busy-job shape.
+- **What that suggests:** less "the arrows were not seen" and more "the job pulled the head the other way, and the arrows only ask the eyes". While the ball is outside the view, eye movements alone cannot uncover it.
+- **How sure:** not very. One person, four pictures, read by eye. The facts the script prints for each case have not been checked against this reading yet.
+- **Idea, not built:** when the object is outside the headset's view, the cue should ask for a head turn.
+- **To check:** the pictures were uploaded to the shared folder by hand (a `pilot graphs` folder), and `analysis/slow_nudges/` is not in the shared folder. Tamanna's `CalibrationLogs` may be a plain copy and not the link. If so, her runs do not sync.
+- **Mix-up to avoid:** `real_table.csv` and the other files in `CalibrationLogs/analysis/` are results to read. `analyze_recording.py` takes raw `trial_*.csv` recordings and stops with "Missing columns" on anything else.
+
+### Direction: approaching objects, and a nudge with a deadline
+
+- **Where we were stuck:** the model made little sense to either of us, and it was not clear what the Unity work trains that still matters on real glasses.
+- **The framing we settled on:** a nudge is worth showing when something matters and the wearer will not notice it in time. That is three questions: what is out there, how much time is left, and will the wearer notice in time. Unity answers the first for free. The model answers the third. **Nothing answers the second.** Every surprise counts the same, and the smart nudge uses a fixed 8 s.
+- **Decision (Russell):** build for things coming at the wearer from the blind side. The wearer stands still and the objects move. Nudge when the model's guess is longer than the time left (distance divided by closing speed).
+- **Why not still objects on a desk:** a still object has no deadline, so "does it matter?" would mean guessing what the wearer wants.
+- **What it means for the model:** the model stays. It is the answer to the third question, and its inputs are only angles between the gaze, the head and a spot, so they do not depend on Unity. The weights will not carry over (one person, one dark room). The method does.
+- **Field of view (Russell's point):** the Quest Pro shows 106 by 96 degrees, the Meta VR Glasses 70 by 66, and human vision about 140 to 210 side to side depending on the source. The slow-nudge pictures above are this problem showing up in our own data. Experiments should include objects that start outside the view. Meta has a simulator that shows the glasses' view on a Quest headset. Not tried yet.
+- **Target device:** the Meta VR Glasses, announced in Sept 2026 with eye tracking and expected in spring 2027. Whether apps can read their camera feed is not confirmed.
+- **Written up in [DIRECTION.md](DIRECTION.md):** the plan, what has to change in the code, what carries over to passthrough, and what is still undecided (speeds, distances, what "arrived" means, a safety margin).
+- **Nothing is built yet.**
+
 ## 2026-11-14
 
 ### First nudge test: the nudge made things slower, and why
@@ -357,8 +392,21 @@ The Project Setup Tool's Fix All turns some of these back on. Fix items one at a
 
 ## Next
 
+Updated 21 Nov 2026.
+
+**The new direction (details in [DIRECTION.md](DIRECTION.md)):**
+
+- **Settle the undecided things first:** how fast objects move, how far away they start, what "arrived" means, the safety margin.
+- **Make the surprise approach the wearer,** and log when it arrives.
+- **Change the smart nudge** to compare the model's guess with the time left.
+- **Make the analysis handle a moving object,** for real and imaginary objects alike, then retrain.
+- **Rerun the three-way test** (no nudge, everything, smart) with approaching objects.
+- **Try Meta's field-of-view simulator** for the Meta VR Glasses' 70 by 66 degree view.
+- **Check the slow-nudge reading** against the facts `slow_nudges.py` prints, and run it with `--all` to compare slow finds with quick ones.
+
+**Still open from the simulator work:**
+
 - **Run the calibration check on Tamanna** too, and compare with P01.
-- **A/B fixation anchoring** with the head-motion test (K on vs off). The fixed lean should drop toward 0 with it on.
 - **Native build vs Link:** less urgent now that latency looks small, but still worth one comparison.
 - **Add a validation run** (a second pass with the correction on) for an honest after-correction error.
 - **Smart smoothing on the filter**, tuned from the noise numbers.

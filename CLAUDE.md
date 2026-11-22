@@ -14,6 +14,35 @@ The current centrepiece is the **miss-time model**: a small formula that guesses
 the wearer will take to notice an object without help. A long guess means "nudge". A short guess
 means "stay quiet".
 
+## Where it is going (chosen 21 Nov 2026)
+
+Read `Docs/DIRECTION.md` before planning any new work. The short version:
+
+- **Goal:** warn the wearer about things coming at them from the blind side, only when they
+  would not notice in time on their own.
+- **Rule:** nudge when the model's guess ("seconds until they notice") is longer than the time
+  left ("seconds until it reaches them"). Time left is distance divided by closing speed.
+- **First version:** the wearer stands still and objects approach from the blind side.
+- **Where it should end up:** passthrough on the Meta VR Glasses, with real objects found by
+  computer vision. The Unity project is the simulator where we work it out first. Prefer choices
+  that survive that move: inputs the glasses can also measure, and a field of view of 70 by 66
+  degrees.
+
+What exists today is the still-object version: a ball appears on the blind side and stays put,
+and the smart nudge compares the model's guess with a fixed 8 s. **Moving objects and the
+time-left rule are not built yet.** `Docs/DIRECTION.md` lists what has to change and what is
+still undecided. Ask before picking any of the undecided things.
+
+## How to explain things to us
+
+The machine learning side is new to us, and long explanations have lost us before.
+
+- One idea per message. Stop and check it landed before the next one.
+- Plain words. Define a term the first time you use it, and keep using the same word after.
+- Show it from inside the headset (what the wearer sees) before showing a graph of it.
+- Say what a thing is for in this project before saying how it works.
+- Short answers first. Offer the detail, do not lead with it.
+
 ## Who works on what
 
 | Person | Background | Works in |
@@ -64,6 +93,14 @@ python Analysis/train_model.py
 `train_model.py` trains on the imaginary table, tests on the real one, prints the scores, and writes
 `miss_model.json`, `real_table_with_guesses.csv`, `miss_model_check.png` and the Unity weights file.
 
+`slow_nudges.py` (Tamanna) looks at surprises that took long to find even with the arrows
+showing. It prints plain facts about each one and saves a two-panel picture per case into
+`CalibrationLogs/analysis/slow_nudges/`. It only reads recordings. It changes no model or table.
+
+The files in `CalibrationLogs/analysis/` are results to read. They are not inputs for
+`analyze_recording.py` (in `Hemianopia_TAMANNA/`), which takes raw `trial_*.csv` recordings
+from the moving-block tests.
+
 A healthy run on the 14 Nov 2026 recordings prints about: typical error 1.41 s, same-order score
 0.81, missed-against-found score 0.99. If your numbers match, your setup works.
 
@@ -81,12 +118,21 @@ A healthy run on the 14 Nov 2026 recordings prints about: typical error 1.41 s, 
 | Miss time | Seconds from an object appearing to the wearer looking at it. Capped at 20. |
 | Looked at | Gaze within about 3 degrees of the object, held for 0.35 s |
 | Imaginary object | A pretend object placed into a real recording after the fact |
+| Input (or feature) | One number that describes the last 10 s of eye and head movement. The model has 8 |
+| Weight | How much one input counts in the model's guess. Training picks the weights |
+| Time left | Seconds until an approaching object reaches the wearer: distance divided by closing speed. Not built yet |
+| Arrived | The approaching object has reached the wearer. Not built or defined yet |
 
 ## The 8 inputs to the model
 
 All use only the last 10 seconds of eye and head movement. They are computed in
 `Analysis/gaze_tools.py` (`spot_features`) and again in C# in `MissModel.cs`. The two must stay
 identical. If you change one, tell Russell so the other can follow.
+
+The 8 were chosen by hand as guesses at what might matter. Training then showed that two carry
+almost all the weight: `beyond_scan_deg` and `since_uncovered_s`. In plain words, the model
+learned one thing: if the eyes have not been going near a spot lately, an object there gets
+missed. When explaining the model, start from that sentence, not from the table.
 
 | Name | Meaning |
 | --- | --- |
@@ -101,14 +147,33 @@ identical. If you change one, tell Russell so the other can follow.
 
 ## Where to read more
 
+- `Docs/DIRECTION.md`: where the project is going, what has to change, what is undecided
 - `Docs/ROOM.md`: how to run the test room, every key, what gets saved
 - `Docs/DEVLOG.md`: dated notes on every result, finding and fix
 - `Analysis/gaze_tools.py`: start here to understand the analysis. Read it before changing anything.
 - `README.md`: project overview and Unity setup
 
-## Open questions (good places to start)
+## What to work on next
+
+The build list is in `Docs/DIRECTION.md` under "What stays and what changes". In short:
+
+1. Unity: make the surprise approach the wearer, and log when it arrives.
+2. Unity: change the smart nudge to compare the model's guess with the time left.
+3. Analysis: make `build_table.py` and `gaze_tools.py` handle an object that moves,
+   for real and imaginary objects alike.
+4. Retrain, then rerun the three-way test (no nudge, everything, smart) with approaching objects.
+
+Settle the undecided things in `Docs/DIRECTION.md` first (speeds, distances, what "arrived"
+means). They decide what gets built.
+
+## Open questions
 
 1. Why do some nudges not land? A few finds took 9 to 19 s with the arrows already showing.
+   First read from `slow_nudges.py` on 21 Nov: in the slowest cases the ball had left the
+   headset's view because the head had turned away. A hunch from four pictures, not a finding.
+   See `Docs/DEVLOG.md`.
 2. Does the model hold up when trained on some blocks and tested on others?
 3. Is there any surprise where the model beats the one-line rule `beyond_scan_deg > 0`?
-4. How do misses and nudge counts trade off as the 8 s nudge line moves?
+4. How do misses and nudge counts trade off as the 8 s nudge line moves? The time-left rule
+   replaces the fixed 8 s, so this one matters less now.
+5. Do the model's guesses hold up for an object that moves?
